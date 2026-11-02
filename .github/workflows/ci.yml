@@ -175,12 +175,11 @@ jobs:
       - name: Fix script permissions
         run: chmod +x Scripts/*.sh
 
+      - name: Setup OpenCV XCFramework
+        run: bash ./Scripts/setup-opencv.sh
+
       - name: Generate Xcode project
         run: xcodegen generate
-
-      - name: Setup OpenCV XCFramework
-        if: hashFiles('Frameworks/opencv2.xcframework/**') != ''
-        run: bash ./Scripts/setup-opencv.sh
 
       - name: Verify no DEBUG leakage in Release source
         run: bash ./Scripts/verify-release-no-debug.sh --source-only
