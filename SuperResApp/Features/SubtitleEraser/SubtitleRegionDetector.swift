@@ -6,7 +6,7 @@ import Vision
 /// On-device subtitle text detector. Vision coordinates are converted to top-left normalized coordinates.
 struct SubtitleRegionDetector {
     var minimumConfidence: Double = 0.6
-    var bottomRegionFraction: Double = 0.35
+    var bottomRegionFraction: Double = 0.25
     var horizontalMergeGap: Double = 0.025
     var verticalMergeGap: Double = 0.015
 
@@ -64,7 +64,7 @@ struct SubtitleRegionDetector {
     static func filterAndMerge(
         _ candidates: [DetectedSubtitleRegion],
         minimumConfidence: Double = 0.6,
-        bottomRegionFraction: Double = 0.35,
+        bottomRegionFraction: Double = 0.25,
         horizontalMergeGap: Double = 0.025,
         verticalMergeGap: Double = 0.015
     ) -> [DetectedSubtitleRegion] {

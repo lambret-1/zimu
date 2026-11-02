@@ -31,6 +31,32 @@ final class SubtitleEraserStateMachineTests: XCTestCase {
         }
     }
 
+    func testManualDetectionCanStartFromEditingAndReturn() throws {
+        let sm = SubtitleEraserStateMachine()
+        try sm.beginImporting()
+        try sm.importSucceeded()
+        try sm.detectionSucceeded()
+        XCTAssertEqual(sm.state, .editing)
+
+        try sm.beginDetection()
+        XCTAssertEqual(sm.state, .detecting)
+        XCTAssertTrue(sm.state.isBusy)
+        XCTAssertFalse(sm.state.canDismiss)
+
+        try sm.detectionSucceeded()
+        XCTAssertEqual(sm.state, .editing)
+    }
+
+    func testManualDetectionCanBeCancelledBackToEditing() throws {
+        let sm = SubtitleEraserStateMachine()
+        try sm.beginImporting()
+        try sm.importSucceeded()
+        try sm.detectionSucceeded()
+        try sm.beginDetection()
+        sm.returnToEditing()
+        XCTAssertEqual(sm.state, .editing)
+    }
+
     func testDetectionDegradedEntersEditing() throws {
         let sm = SubtitleEraserStateMachine()
         try sm.beginImporting()
