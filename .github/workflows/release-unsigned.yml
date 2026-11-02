@@ -20,7 +20,6 @@ concurrency:
 
 env:
   SCHEME: SuperResApp
-  WORKSPACE: SuperResApp.xcworkspace
   APP_NAME: SuperResApp
   BUILD_DIR: build
 
@@ -35,6 +34,15 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '16.0'
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Fix script permissions
+        run: chmod +x Scripts/*.sh
+
+      - name: Generate Xcode project
+        run: xcodegen generate
 
       - name: Show Xcode version
         run: xcodebuild -version
@@ -66,7 +74,7 @@ jobs:
           set -o pipefail
           mkdir -p "$BUILD_DIR"
           xcodebuild archive \
-            -workspace "$WORKSPACE" \
+            -project SuperResApp.xcodeproj \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination "generic/platform=iOS" \
