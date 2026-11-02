@@ -3,18 +3,13 @@ import XCTest
 @testable import SuperResApp
 
 final class TemporaryFileManagerTests: XCTestCase {
-    private var manager: TemporaryFileManager!
+    private let manager = TemporaryFileManager(
+        rootDirectoryName: "SubtitleEraserTests-\(UUID().uuidString)"
+    )
 
-    override func setUp() {
-        super.setUp()
-        manager = TemporaryFileManager(
-            rootDirectoryName: "SubtitleEraserTests-\(UUID().uuidString)"
-        )
-    }
 
     override func tearDown() {
         try? FileManager.default.removeItem(at: manager.rootURL)
-        manager = nil
         super.tearDown()
     }
 
