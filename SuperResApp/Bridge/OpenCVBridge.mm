@@ -1,4 +1,4 @@
-#import <Foundation/Foundation.h>
+#import "SuperResApp-Bridging-Header.h"
 #import <opencv2/opencv.hpp>
 
 #include <exception>
