@@ -6,6 +6,8 @@ import UIKit
 final class SubtitleEraserViewModel: ObservableObject {
     @Published private(set) var displayImage: UIImage?
     @Published private(set) var previewImage: UIImage?
+    @Published private(set) var activeAutoMask: Data?
+    @Published private(set) var autoMaskPreview: [NormalizedRect] = []
     @Published private(set) var pixelSize: CGSize = .zero
     @Published private(set) var latestError: SubtitleEraserError?
     @Published private(set) var lastWarning: SubtitleEraserError?
@@ -48,11 +50,16 @@ final class SubtitleEraserViewModel: ObservableObject {
     var canDismiss: Bool { stateMachine.state.canDismiss }
 
     var canExecute: Bool {
-        guard displayImage != nil, !undoManager.strokes.isEmpty else { return false }
+        guard displayImage != nil,
+              !undoManager.strokes.isEmpty || activeAutoMask != nil else { return false }
         switch stateMachine.state {
         case .editing, .previewing: return true
         default: return false
         }
+    }
+
+    var canAutoDetect: Bool {
+        displayImage != nil && stateMachine.state == .editing
     }
 
     var canSave: Bool {
@@ -80,6 +87,8 @@ final class SubtitleEraserViewModel: ObservableObject {
             pixelSize = loaded.pixelSize
             originalBGRA = loaded.bgra
             undoManager.reset()
+            activeAutoMask = nil
+            autoMaskPreview = []
             previewImage = nil
             showComparison = false
             comparisonSlider = 0.5
@@ -91,12 +100,91 @@ final class SubtitleEraserViewModel: ObservableObject {
         }
     }
 
+    /// Runs on-device Vision text recognition, filters the lower subtitle band, then refines the mask.
+    func autoDetectSubtitles() async {
+        latestError = nil
+        lastWarning = nil
+        guard let image = displayImage?.cgImage,
+              let source = originalBGRA else {
+            latestError = .make(.mediaUnreadable)
+            return
+        }
+        guard canAutoDetect else { return }
+
+        let width = Int(pixelSize.width.rounded())
+        let height = Int(pixelSize.height.rounded())
+        guard width > 0, height > 0 else {
+            latestError = .make(.mediaMetadataInvalid)
+            return
+        }
+
+        do {
+            try stateMachine.beginDetection()
+        } catch {
+            latestError = normalize(error, fallback: .internalStateError)
+            return
+        }
+
+        taskController.cancel()
+        let token = taskController.begin()
+        let targetSize = pixelSize
+        do {
+            let result = try await Task.detached(priority: .userInitiated) {
+                let regions = try SubtitleRegionDetector().detect(cgImage: image)
+                guard !regions.isEmpty else {
+                    throw SubtitleEraserError.make(
+                        .detectionFailed,
+                        underlying: "Vision returned no subtitle candidates in the lower image band."
+                    )
+                }
+                let coarseMask = try MaskProcessor.rasterize(
+                    regions: regions,
+                    targetSize: targetSize,
+                    expandPixels: 3
+                )
+                let refinedMask = try SubtitleMaskRefiner.refine(
+                    imageBGRA: source,
+                    coarseMask: coarseMask,
+                    width: width,
+                    height: height,
+                    options: SubtitleMaskRefiner.Options(dilatePixels: 4, featherPixels: 2)
+                )
+                guard refinedMask.contains(where: { $0 > 0 }) else {
+                    throw SubtitleEraserError.make(.detectionFailed, underlying: "refined subtitle mask is empty.")
+                }
+                return (regions, refinedMask)
+            }.value
+
+            guard taskController.isActive(token) else {
+                Logger.info("stale subtitle detection result discarded")
+                taskController.finish(token)
+                return
+            }
+            activeAutoMask = result.1
+            autoMaskPreview = result.0.map(\.rect)
+            try stateMachine.detectionSucceeded()
+            Logger.info("subtitle auto detection succeeded")
+        } catch {
+            if taskController.isActive(token) {
+                let warning = SubtitleEraserError.make(
+                    .detectionFailed,
+                    underlying: error.localizedDescription
+                )
+                stateMachine.detectionDegraded(warning)
+                lastWarning = warning
+                Logger.warning("subtitle detection degraded to manual mode")
+            }
+        }
+        taskController.finish(token)
+    }
+
     func executeInpaint() async {
         latestError = nil
         lastWarning = nil
         lastSaveSucceeded = false
-        guard let source = originalBGRA, !undoManager.strokes.isEmpty else {
-            latestError = .make(.inpaintFailed, underlying: "missing image or strokes")
+        guard let source = originalBGRA,
+              !undoManager.strokes.isEmpty || activeAutoMask != nil else {
+            latestError = .make(.inpaintFailed, underlying: "missing image, automatic mask, or strokes")
             return
         }
         let width = Int(pixelSize.width)
@@ -118,6 +206,7 @@ final class SubtitleEraserViewModel: ObservableObject {
 
         let token = taskController.begin()
         let strokeSnapshot = undoManager.strokes
+        let baseMaskSnapshot = activeAutoMask
         let targetSize = pixelSize
         do {
             let output = try await Task.detached(priority: .userInitiated) {
@@ -126,12 +215,14 @@ final class SubtitleEraserViewModel: ObservableObject {
                     mask = try MaskProcessor.rasterizeMask(
                         strokes: strokeSnapshot,
                         targetSize: targetSize,
-                        featherPixels: 2
+                        featherPixels: 2,
+                        baseMask: baseMaskSnapshot
                     )
                 } else {
                     let binary = try MaskProcessor.rasterize(
                         strokes: strokeSnapshot,
-                        targetSize: targetSize
+                        targetSize: targetSize,
+                        baseMask: baseMaskSnapshot
                     )
                     mask = RasterizedMask(
                         width: width,
@@ -218,6 +309,8 @@ final class SubtitleEraserViewModel: ObservableObject {
         showComparison = false
         comparisonSlider = 0.5
         undoManager.reset()
+        activeAutoMask = nil
+        autoMaskPreview = []
         if stateMachine.state == .previewing || stateMachine.state == .completed {
             try? stateMachine.backToEditing()
         } else {
@@ -233,6 +326,8 @@ final class SubtitleEraserViewModel: ObservableObject {
         switch stateMachine.state {
         case .processing, .exporting:
             try? stateMachine.backToEditing()
+        case .detecting:
+            stateMachine.returnToEditing()
         default:
             stateMachine.cancel()
         }

@@ -58,6 +58,10 @@ final class SubtitleEraserStateMachine: ObservableObject {
 
     // MARK: - 检测
 
+    func beginDetection() throws {
+        try transitionTo(.detecting)
+    }
+
     func detectionSucceeded() throws {
         try transitionTo(.editing)
     }
@@ -118,7 +122,7 @@ final class SubtitleEraserStateMachine: ObservableObject {
 
     func returnToEditing() {
         switch state {
-        case .previewing, .completed, .failed, .cancelled:
+        case .detecting, .previewing, .completed, .failed, .cancelled:
             state = .editing
         default:
             break
@@ -159,6 +163,7 @@ final class SubtitleEraserStateMachine: ObservableObject {
         case (.idle, .importing):          return true
         case (.importing, .detecting):     return true
         case (.detecting, .editing):       return true
+        case (.editing, .detecting):       return true
         case (.editing, .processing):      return true
         case (.processing, .previewing):   return true
         case (.processing, .editing):      return true

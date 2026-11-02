@@ -138,6 +138,22 @@ struct SubtitleEraserView: View {
                 comparisonView(original: original, preview: preview)
             } else {
                 Image(uiImage: original).resizable().scaledToFit()
+                if !viewModel.autoMaskPreview.isEmpty {
+                    GeometryReader { geometry in
+                        ForEach(Array(viewModel.autoMaskPreview.enumerated()), id: \.offset) { _, region in
+                            let rect = region.toCGRect(in: geometry.size)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.red.opacity(0.24))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .stroke(Color.red.opacity(0.95), lineWidth: 1.5)
+                                }
+                                .frame(width: rect.width, height: rect.height)
+                                .position(x: rect.midX, y: rect.midY)
+                        }
+                    }
+                    .allowsHitTesting(false)
+                }
                 MaskDrawCanvas(
                     committedStrokes: undoManager.strokes,
                     tool: viewModel.tool,
@@ -215,6 +231,7 @@ struct SubtitleEraserView: View {
         case .processing: return "正在修复…"
         case .exporting: return "正在保存…"
         case .importing: return "正在导入…"
+        case .detecting: return "正在识别字幕…"
         default: return "处理中…"
         }
     }
@@ -230,6 +247,18 @@ struct SubtitleEraserView: View {
 
     private var drawingControls: some View {
         VStack(spacing: 12) {
+            Button {
+                Task { await viewModel.autoDetectSubtitles() }
+            } label: {
+                if case .detecting = viewModel.stateMachine.state {
+                    ProgressView("正在智能抓取…")
+                } else {
+                    Label("智能抓取", systemImage: "text.viewfinder")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!viewModel.canAutoDetect)
+
             Picker("工具", selection: $viewModel.tool) {
                 Text("画笔").tag(MaskBrushTool.brush)
                 Text("橡皮擦").tag(MaskBrushTool.eraser)

@@ -18,7 +18,8 @@ enum MaskProcessor {
     static func rasterize(
         strokes: [MaskStroke],
         targetSize: CGSize,
-        expandPixels: Int? = nil
+        expandPixels: Int? = nil,
+        baseMask: Data? = nil
     ) throws -> Data {
         guard targetSize.width.isFinite, targetSize.height.isFinite,
               targetSize.width > 0, targetSize.height > 0,
@@ -31,15 +32,18 @@ enum MaskProcessor {
         guard !overflow, pixelCount > 0, pixelCount <= maxPixels else {
             throw SubtitleEraserError.make(.mediaTooLarge, underlying: "mask dimensions exceed limit")
         }
-        guard !strokes.isEmpty else {
-            throw SubtitleEraserError.make(.inpaintFailed, underlying: "empty strokes")
+        guard !strokes.isEmpty || baseMask != nil else {
+            throw SubtitleEraserError.make(.inpaintFailed, underlying: "empty strokes and base mask")
+        }
+        if let baseMask, baseMask.count != byteCount {
+            throw SubtitleEraserError.make(.inpaintFailed, underlying: "base mask length mismatch")
         }
         let (byteCount, byteOverflow) = width.multipliedReportingOverflow(by: height)
         guard !byteOverflow else {
             throw SubtitleEraserError.make(.mediaTooLarge, underlying: "mask buffer size overflow")
         }
 
-        var data = Data(count: byteCount)
+        var data = baseMask ?? Data(count: byteCount)
         let rendered = data.withUnsafeMutableBytes { buffer -> Bool in
             guard let baseAddress = buffer.baseAddress,
                   let context = CGContext(
@@ -53,8 +57,10 @@ enum MaskProcessor {
                   ) else {
                 return false
             }
-            context.setFillColor(gray: 0, alpha: 1)
-            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            if baseMask == nil {
+                context.setFillColor(gray: 0, alpha: 1)
+                context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            }
             context.translateBy(x: 0, y: CGFloat(height))
             context.scaleBy(x: 1, y: -1)
             context.setShouldAntialias(true)
@@ -77,17 +83,88 @@ enum MaskProcessor {
         return Data(bytes)
     }
 
+    /// 将归一化检测框绘制为图像像素 Mask。
+    static func rasterize(
+        regions: [DetectedSubtitleRegion],
+        targetSize: CGSize,
+        expandPixels: Int? = nil
+    ) throws -> Data {
+        guard targetSize.width.isFinite, targetSize.height.isFinite,
+              targetSize.width > 0, targetSize.height > 0,
+              targetSize.width <= CGFloat(maxSide), targetSize.height <= CGFloat(maxSide) else {
+            throw SubtitleEraserError.make(.mediaMetadataInvalid, underlying: "mask target size invalid")
+        }
+        let width = Int(targetSize.width.rounded())
+        let height = Int(targetSize.height.rounded())
+        let (pixelCount, overflow) = width.multipliedReportingOverflow(by: height)
+        guard !overflow, pixelCount > 0, pixelCount <= maxPixels else {
+            throw SubtitleEraserError.make(.mediaTooLarge, underlying: "mask dimensions exceed limit")
+        }
+        guard !regions.isEmpty else {
+            throw SubtitleEraserError.make(.detectionFailed, underlying: "no subtitle regions")
+        }
+
+        var data = Data(count: pixelCount)
+        let rendered = data.withUnsafeMutableBytes { buffer -> Bool in
+            guard let baseAddress = buffer.baseAddress,
+                  let context = CGContext(
+                    data: baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: width,
+                    space: CGColorSpaceCreateDeviceGray(),
+                    bitmapInfo: CGImageAlphaInfo.none.rawValue
+                  ) else {
+                return false
+            }
+            context.setFillColor(gray: 0, alpha: 1)
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            context.translateBy(x: 0, y: CGFloat(height))
+            context.scaleBy(x: 1, y: -1)
+            context.setShouldAntialias(true)
+            context.setAllowsAntialiasing(true)
+            context.setFillColor(gray: 1, alpha: 1)
+
+            var didDraw = false
+            for region in regions {
+                let rect = region.rect.toCGRect(in: targetSize)
+                guard rect.origin.x.isFinite, rect.origin.y.isFinite,
+                      rect.width.isFinite, rect.height.isFinite,
+                      rect.width > 0, rect.height > 0 else { continue }
+                let clipped = rect.intersection(CGRect(x: 0, y: 0, width: targetSize.width, height: targetSize.height))
+                guard !clipped.isNull, !clipped.isEmpty else { continue }
+                context.fill(clipped)
+                didDraw = true
+            }
+            return didDraw
+        }
+        guard rendered else {
+            throw SubtitleEraserError.make(.detectionFailed, underlying: "no valid subtitle regions or bitmap context")
+        }
+
+        var bytes = [UInt8](data)
+        binarize(&bytes)
+        let expansion = min(64, max(0, expandPixels ?? scaledExpansion(for: targetSize)))
+        if expansion > 0 {
+            bytes = dilate(bytes, width: width, height: height, iterations: expansion)
+        }
+        return Data(bytes)
+    }
+
     /// 带羽化的光栅化。旧 rasterize(Data) API 保持不变。
     static func rasterizeMask(
         strokes: [MaskStroke],
         targetSize: CGSize,
         expandPixels: Int? = nil,
-        featherPixels: Int = 0
+        featherPixels: Int = 0,
+        baseMask: Data? = nil
     ) throws -> RasterizedMask {
         let binaryData = try rasterize(
             strokes: strokes,
             targetSize: targetSize,
-            expandPixels: expandPixels
+            expandPixels: expandPixels,
+            baseMask: baseMask
         )
         let width = Int(targetSize.width.rounded())
         let height = Int(targetSize.height.rounded())
