@@ -7,7 +7,6 @@ final class TemporaryFileManagerTests: XCTestCase {
         rootDirectoryName: "SubtitleEraserTests-\(UUID().uuidString)"
     )
 
-
     override func tearDown() {
         try? FileManager.default.removeItem(at: manager.rootURL)
         super.tearDown()
