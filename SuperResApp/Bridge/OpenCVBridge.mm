@@ -285,7 +285,7 @@ NSData * _Nullable SuperResRefineSubtitleMask(NSData *imageData,
     for (size_t index = 0; index < contours.size(); ++index) {
         if (cv::contourArea(contours[index]) >= minimumArea) {
             cv::drawContours(cleanMask, contours, static_cast<int>(index),
-                             cv::Scalar(255), cv::FILLED);
+                             cv::Scalar(255), -1);
         }
     }
 
