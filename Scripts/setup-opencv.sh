@@ -47,12 +47,14 @@ if [ -z "$DEVICE_FRAMEWORK" ] || [ -z "$SIMULATOR_FRAMEWORK" ]; then
   exit 1
 fi
 
-if [ ! -f "$DEVICE_FRAMEWORK/Headers/opencv2/opencv.hpp" ]; then
-  echo "::error::opencv2/opencv.hpp is missing from the device framework."
+OPENCV_HEADER="$(find -L "$DEVICE_FRAMEWORK" -type f -name opencv.hpp -print -quit)"
+if [ -z "$OPENCV_HEADER" ]; then
+  echo "::error::opencv.hpp is missing from the device framework."
+  find -L "$DEVICE_FRAMEWORK" -maxdepth 5 -print | head -100
   exit 1
 fi
 
-if ! grep -R -q "inpaint" "$DEVICE_FRAMEWORK/Headers"; then
+if ! grep -R -q "inpaint" "$DEVICE_FRAMEWORK"; then
   echo "::error::OpenCV photo/inpaint API is missing from this package."
   exit 1
 fi
