@@ -25,3 +25,12 @@
 ## 截图 / 录屏
 
 ## 风险与回滚
+
+## OpenCV bridge safety (修改 OpenCVBridge.mm 时必填)
+- [ ] 已同步更新 `docs/OPENCV_BRIDGE_CONTRACT.md` 的契约表。
+- [ ] 尺寸、16 MP、radius、buffer 长度校验均先于 cv::Mat 构造和 OpenCV 调用。
+- [ ] 全零 mask 在桥接层直接返回原图，未进入 OpenCV。
+- [ ] 高覆盖率且触边的 mask、边界参考像素不足的 mask 均会被拒绝。
+- [ ] 已新增/更新合成 BGRA 回归测试。
+- [ ] 未引入 C++ 异常/RTTI catch 逻辑。
+- [ ] CI 无 abort 类崩溃。
