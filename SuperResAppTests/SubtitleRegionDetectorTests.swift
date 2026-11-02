@@ -1,5 +1,6 @@
 import CoreGraphics
 import XCTest
+import UIKit
 @testable import SuperResApp
 
 final class SubtitleRegionDetectorTests: XCTestCase {
@@ -31,6 +32,34 @@ final class SubtitleRegionDetectorTests: XCTestCase {
         XCTAssertEqual(rect.origin.y, 0.2, accuracy: 0.0001)
         XCTAssertEqual(rect.width, 0.4, accuracy: 0.0001)
         XCTAssertEqual(rect.height, 0.1, accuracy: 0.0001)
+    }
+
+    func testVisionDetectsDynamicallyGeneratedBottomSubtitle() throws {
+        let size = CGSize(width: 640, height: 360)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { renderer in
+            renderer.cgContext.setFillColor(
+                UIColor(red: 0.78, green: 0.08, blue: 0.08, alpha: 1).cgColor
+            )
+            renderer.cgContext.fill(CGRect(origin: .zero, size: size))
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.boldSystemFont(ofSize: 52),
+                .foregroundColor: UIColor.white,
+                .strokeColor: UIColor.black,
+                .strokeWidth: -4
+            ]
+            NSAttributedString(string: "SUBTITLE", attributes: attributes)
+                .draw(in: CGRect(x: 72, y: 270, width: 496, height: 64))
+        }
+
+        let cgImage = try XCTUnwrap(image.cgImage)
+        let regions = try SubtitleRegionDetector().detect(cgImage: cgImage)
+        XCTAssertFalse(regions.isEmpty, "Vision should recognize the generated subtitle text.")
+        XCTAssertTrue(regions.contains {
+            $0.rect.origin.y + $0.rect.height / 2 >= 0.75
+        })
     }
 
     func testFiltersTextOutsideBottomSubtitleBand() {
