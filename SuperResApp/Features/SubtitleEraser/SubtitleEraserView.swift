@@ -256,7 +256,7 @@ struct SubtitleEraserView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
+        ToolbarItem(placement: .navigationBarLeading) {
             Button("返回") {
                 if viewModel.canDismiss {
                     dismiss()
@@ -265,7 +265,7 @@ struct SubtitleEraserView: View {
                 }
             }
         }
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .navigationBarTrailing) {
             if viewModel.displayImage != nil {
                 PhotosPicker(selection: $pickerItem, matching: .images) {
                     Image(systemName: "photo.badge.plus")
