@@ -19,7 +19,6 @@ final class SubtitleEraserViewModel: ObservableObject {
     let gestureCoordinator: GestureCoordinator
 
     private var originalBGRA: Data?
-    private var originalHasAlpha = false
 
     init(
         stateMachine: SubtitleEraserStateMachine = SubtitleEraserStateMachine(),
@@ -45,6 +44,10 @@ final class SubtitleEraserViewModel: ObservableObject {
     func importImage(data: Data) async {
         latestError = nil
         lastSaveSucceeded = false
+        displayImage = nil
+        previewImage = nil
+        originalBGRA = nil
+        pixelSize = .zero
         if stateMachine.state != .idle {
             stateMachine.reset()
         }
@@ -56,7 +59,6 @@ final class SubtitleEraserViewModel: ObservableObject {
             displayImage = loaded.displayImage
             pixelSize = loaded.pixelSize
             originalBGRA = loaded.bgra
-            originalHasAlpha = loaded.hasAlpha
             previewImage = nil
             showComparison = false
             undoManager.reset()
