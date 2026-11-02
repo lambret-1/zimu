@@ -27,6 +27,7 @@ final class SubtitleEraserViewModel: ObservableObject {
     private let taskController: InpaintTaskController
     private let memoryMonitor: MemoryMonitor
     private var originalBGRA: Data?
+    private var cancellables = Set<AnyCancellable>()
 
     init(
         photoSaver: PhotoLibrarySaving = SystemPhotoLibrarySaver(),
@@ -40,6 +41,11 @@ final class SubtitleEraserViewModel: ObservableObject {
         stateMachine = SubtitleEraserStateMachine()
         undoManager = MaskUndoManager()
         gestureCoordinator = GestureCoordinator()
+        stateMachine.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         monitor.onMemoryWarning = { [weak self] in
             self?.handleMemoryWarning()
         }
