@@ -1,7 +1,6 @@
 import CoreGraphics
 import Foundation
 
-
 struct RasterizedMask {
     let width: Int
     let height: Int
