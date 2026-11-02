@@ -1,0 +1,177 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SCHEME: SuperResApp
+  WORKSPACE: SuperResApp.xcworkspace
+  UNIT_TEST_TARGET: SuperResAppTests
+  UI_TEST_TARGET: SuperResAppUITests
+
+jobs:
+  lint:
+    name: SwiftLint
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SwiftLint
+        run: brew install swiftlint
+      - name: Run SwiftLint
+        run: swiftlint lint --strict --reporter github-actions-logging
+
+  build-and-test:
+    name: Build & Test (iOS ${{ matrix.ios }})
+    runs-on: macos-14
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ios: "16.4"
+            device: "iPhone 14"
+          - ios: "17.5"
+            device: "iPhone 15"
+          - ios: "18.0"
+            device: "iPhone 15"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.0'
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Cache DerivedData & SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Developer/Xcode/DerivedData
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-xcode-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-xcode-
+
+      - name: Setup OpenCV XCFramework
+        run: ./Scripts/setup-opencv.sh
+
+      - name: Verify licenses
+        run: ./Scripts/verify-licenses.sh
+
+      - name: Build (unsigned, simulator)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -destination "platform=iOS Simulator,name=${{ matrix.device }},OS=${{ matrix.ios }}" \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | xcpretty
+
+      - name: Unit Tests (simulator, no signing)
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -destination "platform=iOS Simulator,name=${{ matrix.device }},OS=${{ matrix.ios }}" \
+            -only-testing:"$UNIT_TEST_TARGET" \
+            -enableCodeCoverage YES \
+            -resultBundlePath TestResults-${{ matrix.ios }}.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | xcpretty
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-ios-${{ matrix.ios }}
+          path: TestResults-${{ matrix.ios }}.xcresult
+          retention-days: 7
+
+  ui-test:
+    name: UI Tests (simulator, no signing)
+    runs-on: macos-14
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.0'
+
+      - name: Setup OpenCV XCFramework
+        run: ./Scripts/setup-opencv.sh
+
+      - name: UI Tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -destination "platform=iOS Simulator,name=iPhone 15,OS=17.5" \
+            -only-testing:"$UI_TEST_TARGET" \
+            -resultBundlePath UITestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | xcpretty
+
+      - name: Upload UI Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-results
+          path: UITestResults.xcresult
+          retention-days: 7
+
+  release-safety:
+    name: Release Safety Checks
+    runs-on: macos-14
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.0'
+
+      - name: Setup OpenCV XCFramework
+        run: ./Scripts/setup-opencv.sh
+
+      - name: Verify no DEBUG leakage in Release source
+        run: ./Scripts/verify-release-no-debug.sh --source-only
+
+      - name: Build Release (unsigned, generic iOS)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -destination "generic/platform=iOS" \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            | xcpretty
