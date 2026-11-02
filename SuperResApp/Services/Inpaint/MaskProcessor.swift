@@ -1,6 +1,16 @@
 import CoreGraphics
 import Foundation
 
+
+struct RasterizedMask {
+    let width: Int
+    let height: Int
+    /// 8UC1，0 或 255，直接喂给 OpenCV inpaint
+    let binary: Data
+    /// 0..255，用于混合；未羽化时等于 binary
+    let softWeights: [UInt8]
+}
+
 enum MaskProcessor {
     static let expandPixelsAt1080P = 3
     private static let maxPixels = 16 * 1024 * 1024
@@ -66,6 +76,88 @@ enum MaskProcessor {
             bytes = dilate(bytes, width: width, height: height, iterations: expansion)
         }
         return Data(bytes)
+    }
+
+    /// 带羽化的光栅化。旧 rasterize(Data) API 保持不变。
+    static func rasterizeMask(
+        strokes: [MaskStroke],
+        targetSize: CGSize,
+        expandPixels: Int? = nil,
+        featherPixels: Int = 0
+    ) throws -> RasterizedMask {
+        let binaryData = try rasterize(
+            strokes: strokes,
+            targetSize: targetSize,
+            expandPixels: expandPixels
+        )
+        let width = Int(targetSize.width.rounded())
+        let height = Int(targetSize.height.rounded())
+        let binary = [UInt8](binaryData)
+        let radius = min(64, max(0, featherPixels))
+        let soft = radius > 0
+            ? buildSoftWeights(binary: binary, width: width, height: height, radius: radius)
+            : binary
+        return RasterizedMask(
+            width: width,
+            height: height,
+            binary: binaryData,
+            softWeights: soft
+        )
+    }
+
+    private static func buildSoftWeights(
+        binary: [UInt8],
+        width: Int,
+        height: Int,
+        radius: Int
+    ) -> [UInt8] {
+        guard radius > 0, !binary.isEmpty else { return binary }
+        let first = boxBlurOnce(binary, width: width, height: height, radius: radius)
+        let second = boxBlurOnce(first, width: width, height: height, radius: radius)
+        var result = second
+        for index in result.indices where binary[index] == 255 {
+            result[index] = 255
+        }
+        return result
+    }
+
+    private static func boxBlurOnce(
+        _ source: [UInt8],
+        width: Int,
+        height: Int,
+        radius: Int
+    ) -> [UInt8] {
+        guard width > 0, height > 0, radius > 0 else { return source }
+        let window = radius * 2 + 1
+        var horizontal = [UInt8](repeating: 0, count: source.count)
+        for y in 0..<height {
+            let row = y * width
+            var sum = 0
+            for x in -radius...radius {
+                sum += Int(source[row + min(max(x, 0), width - 1)])
+            }
+            for x in 0..<width {
+                horizontal[row + x] = UInt8(sum / window)
+                let leave = min(max(x - radius, 0), width - 1)
+                let enter = min(max(x + radius + 1, 0), width - 1)
+                sum += Int(source[row + enter]) - Int(source[row + leave])
+            }
+        }
+        var result = [UInt8](repeating: 0, count: source.count)
+        for x in 0..<width {
+            var sum = 0
+            for y in -radius...radius {
+                sum += Int(horizontal[min(max(y, 0), height - 1) * width + x])
+            }
+            for y in 0..<height {
+                result[y * width + x] = UInt8(sum / window)
+                let leave = min(max(y - radius, 0), height - 1)
+                let enter = min(max(y + radius + 1, 0), height - 1)
+                sum += Int(horizontal[enter * width + x])
+                    - Int(horizontal[leave * width + x])
+            }
+        }
+        return result
     }
 
     private static func draw(_ stroke: MaskStroke, context: CGContext, targetSize: CGSize) {

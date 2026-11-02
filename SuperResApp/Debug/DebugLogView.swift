@@ -1,3 +1,14 @@
 #if DEBUG
-// 调试模块占位。后续在此实现具体调试能力。
+import SwiftUI
+
+struct DebugLogView: View {
+    var body: some View {
+        List {
+            Section("内存警告") {
+                Text("累计：\(MemoryMonitor.shared.warningCount)")
+            }
+        }
+        .navigationTitle("调试日志")
+    }
+}
 #endif

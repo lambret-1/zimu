@@ -160,13 +160,29 @@ final class SubtitleEraserStateMachine: ObservableObject {
         case (.detecting, .editing):       return true
         case (.editing, .processing):      return true
         case (.processing, .previewing):   return true
+        case (.processing, .editing):      return true
+        case (.previewing, .editing):      return true
+        case (.previewing, .processing):   return true
         case (.previewing, .exporting):    return true
         case (.exporting, .completed):     return true
+        case (.exporting, .editing):       return true
+        case (.completed, .editing):       return true
+        case (.completed, .exporting):     return true
         case (_, .failed), (_, .cancelled), (_, .idle):
             return true
         default:
             return false
         }
+    }
+
+    /// previewing / completed → editing
+    func backToEditing() throws {
+        try transitionTo(.editing)
+    }
+
+    /// completed → exporting（重试保存）
+    func retryExport() throws {
+        try transitionTo(.exporting(progress: 0))
     }
 
     static func describe(_ state: SubtitleEraserState) -> String {

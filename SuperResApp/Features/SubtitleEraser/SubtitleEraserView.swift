@@ -3,11 +3,15 @@ import SwiftUI
 
 struct SubtitleEraserView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @StateObject private var viewModel: SubtitleEraserViewModel
     @ObservedObject private var undoManager: MaskUndoManager
     @State private var pickerItem: PhotosPickerItem?
     @State private var isImporting = false
-    @State private var showExitAlert = false
+    @State private var showDebugPanel = false
+    @State private var versionTapCount = 0
+
+    private var isLandscape: Bool { verticalSizeClass == .compact }
 
     init() {
         let model = SubtitleEraserViewModel()
@@ -22,36 +26,54 @@ struct SubtitleEraserView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { toolbarContent }
                 .interactiveDismissDisabled(!viewModel.canDismiss)
+                .alert("正在处理中", isPresented: $viewModel.showExitConfirm) {
+                    Button("继续处理", role: .cancel) {}
+                    Button("取消并返回", role: .destructive) {
+                        viewModel.confirmExit()
+                        dismiss()
+                    }
+                } message: {
+                    Text("当前任务会被取消，临时数据将清理。")
+                }
+                .sheet(isPresented: $showDebugPanel) {
+                    #if DEBUG
+                    DebugPanelView(viewModel: viewModel)
+                    #endif
+                }
         }
         .overlay(alignment: .top) {
             if let error = viewModel.latestError {
-                errorBanner(error)
-                    .padding(.top, 8)
+                errorBanner(error).padding(.top, 8)
+            } else if let warning = viewModel.lastWarning {
+                warningBanner(warning).padding(.top, 8)
             }
-        }
-        .alert("任务正在处理", isPresented: $showExitAlert) {
-            Button("继续等待", role: .cancel) {}
-        } message: {
-            Text("当前任务尚未结束，请完成后再返回。")
         }
         .onChange(of: pickerItem) { item in
             guard let item else { return }
             isImporting = true
             Task {
-                defer { isImporting = false }
-                guard let data = try? await item.loadTransferable(type: Data.self) else {
-                    await viewModel.importImage(data: Data())
-                    return
+                defer {
+                    isImporting = false
+                    pickerItem = nil
                 }
-                await viewModel.importImage(data: data)
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    await viewModel.importImage(data: data)
+                }
             }
+        }
+        .overlay(alignment: .topLeading) {
+            #if DEBUG
+            if FeatureFlags.debugPanelEnabled {
+                DebugOverlayView(state: viewModel.stateMachine.state, strokeCount: viewModel.strokes.count)
+            }
+            #endif
         }
     }
 
     @ViewBuilder
     private var content: some View {
         if let image = viewModel.displayImage {
-            editorView(original: image)
+            editorLayout(original: image)
         } else {
             emptyView
         }
@@ -62,8 +84,7 @@ struct SubtitleEraserView: View {
             Image(systemName: "wand.and.stars")
                 .font(.system(size: 64))
                 .foregroundStyle(.tint)
-            Text("选择一张图片开始")
-                .font(.headline)
+            Text("选择一张图片开始").font(.headline)
             PhotosPicker(selection: $pickerItem, matching: .images) {
                 Label("从相册选择", systemImage: "photo.on.rectangle")
             }
@@ -72,19 +93,42 @@ struct SubtitleEraserView: View {
             if isImporting {
                 ProgressView("正在加载…")
             }
+            Text("v0.1.0")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.top, 24)
+                .onTapGesture {
+                    #if DEBUG
+                    versionTapCount += 1
+                    if versionTapCount >= 5 {
+                        versionTapCount = 0
+                        DebugSettingsStore.shared.panelEnabled.toggle()
+                        showDebugPanel = true
+                    }
+                    #endif
+                }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
     }
 
-    private func editorView(original: UIImage) -> some View {
-        VStack(spacing: 12) {
-            canvasArea(original: original)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            controls
+    @ViewBuilder
+    private func editorLayout(original: UIImage) -> some View {
+        if isLandscape {
+            HStack(spacing: 12) {
+                canvasArea(original: original)
+                ScrollView { controls }
+                    .frame(maxWidth: 320)
+            }
+            .padding()
+        } else {
+            VStack(spacing: 12) {
+                canvasArea(original: original)
+                controls
+            }
+            .padding(.horizontal)
+            .padding(.bottom)
         }
-        .padding(.horizontal)
-        .padding(.bottom)
     }
 
     private func canvasArea(original: UIImage) -> some View {
@@ -93,17 +137,15 @@ struct SubtitleEraserView: View {
             if let preview = viewModel.previewImage, viewModel.showComparison {
                 comparisonView(original: original, preview: preview)
             } else {
-                Image(uiImage: original)
-                    .resizable()
-                    .scaledToFit()
+                Image(uiImage: original).resizable().scaledToFit()
                 MaskDrawCanvas(
                     committedStrokes: undoManager.strokes,
                     tool: viewModel.tool,
                     brushWidth: viewModel.brushWidth,
                     isEnabled: viewModel.stateMachine.state == .editing,
                     onStrokeCommitted: undoManager.appendStroke,
-                    onDrawingChanged: { isDrawing in
-                        if isDrawing {
+                    onDrawingChanged: { drawing in
+                        if drawing {
                             viewModel.gestureCoordinator.beginDrawing()
                         } else {
                             viewModel.gestureCoordinator.endDrawing()
@@ -115,10 +157,7 @@ struct SubtitleEraserView: View {
                 progressOverlay
             }
         }
-        .aspectRatio(
-            viewModel.pixelSize.width / max(viewModel.pixelSize.height, 1),
-            contentMode: .fit
-        )
+        .aspectRatio(viewModel.pixelSize.width / max(viewModel.pixelSize.height, 1), contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
@@ -126,31 +165,36 @@ struct SubtitleEraserView: View {
         GeometryReader { geometry in
             let split = geometry.size.width * viewModel.comparisonSlider
             ZStack(alignment: .leading) {
-                Image(uiImage: original)
-                    .resizable()
-                    .scaledToFit()
+                Image(uiImage: original).resizable().scaledToFit()
                 Image(uiImage: preview)
                     .resizable()
                     .scaledToFit()
                     .mask(alignment: .leading) {
-                        Rectangle()
-                            .frame(width: split)
+                        Rectangle().frame(width: split)
                     }
-                Rectangle()
-                    .fill(Color.white)
-                    .frame(width: 2)
-                    .offset(x: split)
+                Rectangle().fill(.white).frame(width: 2).offset(x: split)
                 Color.clear
                     .contentShape(Rectangle())
                     .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                viewModel.comparisonSlider = min(
-                                    max(value.location.x / geometry.size.width, 0.02),
-                                    0.98
-                                )
-                            }
+                        DragGesture(minimumDistance: 0).onChanged { value in
+                            viewModel.comparisonSlider = min(
+                                max(value.location.x / geometry.size.width, 0.05),
+                                0.95
+                            )
+                        }
                     )
+            }
+            .accessibilityElement()
+            .accessibilityLabel("原图与修复图对比")
+            .accessibilityValue("\(Int(viewModel.comparisonSlider * 100))%")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment:
+                    viewModel.comparisonSlider = min(0.95, viewModel.comparisonSlider + 0.05)
+                case .decrement:
+                    viewModel.comparisonSlider = max(0.05, viewModel.comparisonSlider - 0.05)
+                @unknown default: break
+                }
             }
         }
     }
@@ -158,12 +202,21 @@ struct SubtitleEraserView: View {
     private var progressOverlay: some View {
         VStack(spacing: 8) {
             ProgressView()
-            Text("正在修复…")
-                .font(.footnote)
-                .foregroundStyle(.white)
+            Text(progressLabel).font(.footnote).foregroundStyle(.white)
+            Button("取消", role: .destructive) { viewModel.cancelCurrent() }
+                .buttonStyle(.bordered)
         }
         .padding(16)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var progressLabel: String {
+        switch viewModel.stateMachine.state {
+        case .processing: return "正在修复…"
+        case .exporting: return "正在保存…"
+        case .importing: return "正在导入…"
+        default: return "处理中…"
+        }
     }
 
     @ViewBuilder
@@ -182,16 +235,15 @@ struct SubtitleEraserView: View {
                 Text("橡皮擦").tag(MaskBrushTool.eraser)
             }
             .pickerStyle(.segmented)
-
             HStack {
                 Text("粗细")
                 Slider(value: $viewModel.brushWidth, in: 10...50, step: 1)
+                    .accessibilityLabel("画笔粗细")
                 Text("\(Int(viewModel.brushWidth)) pt")
                     .monospacedDigit()
                     .frame(width: 56, alignment: .trailing)
             }
-
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Button("撤销") { undoManager.undo() }
                     .disabled(!undoManager.canUndo || viewModel.isProcessing)
                 Button("重做") { undoManager.redo() }
@@ -213,7 +265,7 @@ struct SubtitleEraserView: View {
 
     private var comparisonControls: some View {
         HStack(spacing: 10) {
-            Button("重新编辑") { viewModel.resumeEditing() }
+            Button("重新编辑") { viewModel.backToEditing() }
                 .buttonStyle(.bordered)
             Button("重置原图", role: .destructive) { viewModel.resetToOriginal() }
                 .buttonStyle(.bordered)
@@ -221,11 +273,12 @@ struct SubtitleEraserView: View {
             Button {
                 Task { await viewModel.saveResult() }
             } label: {
-                Label("保存相册", systemImage: "square.and.arrow.down")
+                Label("保存到相册", systemImage: "square.and.arrow.down")
             }
             .buttonStyle(.borderedProminent)
             .disabled(!viewModel.canSave || viewModel.isProcessing)
         }
+        .buttonStyle(.bordered)
     }
 
     private func errorBanner(_ error: SubtitleEraserError) -> some View {
@@ -254,6 +307,17 @@ struct SubtitleEraserView: View {
         .padding(.horizontal)
     }
 
+    private func warningBanner(_ warning: SubtitleEraserError) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle").foregroundStyle(.orange)
+            Text(warning.userMessage).font(.footnote).lineLimit(2)
+            Spacer()
+        }
+        .padding(10)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal)
+    }
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .navigationBarLeading) {
@@ -261,16 +325,27 @@ struct SubtitleEraserView: View {
                 if viewModel.canDismiss {
                     dismiss()
                 } else {
-                    showExitAlert = true
+                    viewModel.showExitConfirm = true
                 }
             }
         }
         ToolbarItem(placement: .navigationBarTrailing) {
-            if viewModel.displayImage != nil {
-                PhotosPicker(selection: $pickerItem, matching: .images) {
-                    Image(systemName: "photo.badge.plus")
+            HStack {
+                #if DEBUG
+                if FeatureFlags.debugPanelEnabled {
+                    Button {
+                        showDebugPanel = true
+                    } label: {
+                        Image(systemName: "ladybug")
+                    }
                 }
-                .disabled(viewModel.isProcessing)
+                #endif
+                if viewModel.displayImage != nil {
+                    PhotosPicker(selection: $pickerItem, matching: .images) {
+                        Image(systemName: "photo.badge.plus")
+                    }
+                    .disabled(viewModel.isProcessing)
+                }
             }
         }
     }

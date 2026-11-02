@@ -8,7 +8,10 @@ final class SubtitleEraserViewModel: ObservableObject {
     @Published private(set) var previewImage: UIImage?
     @Published private(set) var pixelSize: CGSize = .zero
     @Published private(set) var latestError: SubtitleEraserError?
+    @Published private(set) var lastWarning: SubtitleEraserError?
     @Published private(set) var lastSaveSucceeded = false
+    @Published var showExitConfirm = false
+
     @Published var tool: MaskBrushTool = .brush
     @Published var brushWidth: CGFloat = 20
     @Published var showComparison = false
@@ -18,40 +21,57 @@ final class SubtitleEraserViewModel: ObservableObject {
     let undoManager: MaskUndoManager
     let gestureCoordinator: GestureCoordinator
 
+    private let photoSaver: PhotoLibrarySaving
+    private let taskController: InpaintTaskController
+    private let memoryMonitor: MemoryMonitor
     private var originalBGRA: Data?
 
     init(
-        stateMachine: SubtitleEraserStateMachine? = nil,
-        undoManager: MaskUndoManager? = nil,
-        gestureCoordinator: GestureCoordinator? = nil
+        photoSaver: PhotoLibrarySaving = SystemPhotoLibrarySaver(),
+        taskController: InpaintTaskController = InpaintTaskController(),
+        memoryMonitor: MemoryMonitor? = nil
     ) {
-        self.stateMachine = stateMachine ?? SubtitleEraserStateMachine()
-        self.undoManager = undoManager ?? MaskUndoManager()
-        self.gestureCoordinator = gestureCoordinator ?? GestureCoordinator()
+        self.photoSaver = photoSaver
+        self.taskController = taskController
+        let monitor = memoryMonitor ?? MemoryMonitor.shared
+        self.memoryMonitor = monitor
+        stateMachine = SubtitleEraserStateMachine()
+        undoManager = MaskUndoManager()
+        gestureCoordinator = GestureCoordinator()
+        monitor.onMemoryWarning = { [weak self] in
+            self?.handleMemoryWarning()
+        }
     }
 
-    var canExecute: Bool {
-        !undoManager.strokes.isEmpty && stateMachine.state == .editing && displayImage != nil
-    }
-
-    var canSave: Bool {
-        previewImage != nil && stateMachine.state == .previewing
-    }
-
+    var strokes: [MaskStroke] { undoManager.strokes }
     var isProcessing: Bool { stateMachine.state.isBusy }
     var canDismiss: Bool { stateMachine.state.canDismiss }
 
+    var canExecute: Bool {
+        guard displayImage != nil, !undoManager.strokes.isEmpty else { return false }
+        switch stateMachine.state {
+        case .editing, .previewing: return true
+        default: return false
+        }
+    }
+
+    var canSave: Bool {
+        previewImage != nil && (stateMachine.state == .previewing || stateMachine.state == .completed)
+    }
+
+    var canReturnToEditing: Bool {
+        stateMachine.state == .previewing || stateMachine.state == .completed
+    }
+
     func importImage(data: Data) async {
         latestError = nil
+        lastWarning = nil
         lastSaveSucceeded = false
-        displayImage = nil
-        previewImage = nil
-        originalBGRA = nil
-        pixelSize = .zero
-        if stateMachine.state != .idle {
-            stateMachine.reset()
-        }
+        taskController.cancel()
         do {
+            if stateMachine.state != .idle {
+                stateMachine.reset()
+            }
             try stateMachine.beginImporting()
             let loaded = try await Task.detached(priority: .userInitiated) {
                 try ImageMetadataService.load(from: data)
@@ -59,20 +79,22 @@ final class SubtitleEraserViewModel: ObservableObject {
             displayImage = loaded.displayImage
             pixelSize = loaded.pixelSize
             originalBGRA = loaded.bgra
+            undoManager.reset()
             previewImage = nil
             showComparison = false
-            undoManager.reset()
+            comparisonSlider = 0.5
             try stateMachine.importSucceeded()
             try stateMachine.detectionSucceeded()
+            Logger.info("image import succeeded")
         } catch {
-            let failure = normalize(error, fallback: .mediaUnreadable)
-            latestError = failure
-            stateMachine.importFailed(failure)
+            fail(with: error, fallback: .mediaUnreadable)
         }
     }
 
     func executeInpaint() async {
         latestError = nil
+        lastWarning = nil
+        lastSaveSucceeded = false
         guard let source = originalBGRA, !undoManager.strokes.isEmpty else {
             latestError = .make(.inpaintFailed, underlying: "missing image or strokes")
             return
@@ -83,37 +105,61 @@ final class SubtitleEraserViewModel: ObservableObject {
             latestError = .make(.mediaMetadataInvalid)
             return
         }
+
         do {
-            if case .failed = stateMachine.state {
-                stateMachine.returnToEditing()
-            }
             try stateMachine.beginProcessing()
-            let strokeSnapshot = undoManager.strokes
-            let result = try await Task.detached(priority: .userInitiated) {
-                let mask = try MaskProcessor.rasterize(
-                    strokes: strokeSnapshot,
-                    targetSize: CGSize(width: width, height: height)
-                )
+        } catch {
+            fail(with: error, fallback: .internalStateError)
+            return
+        }
+
+        let token = taskController.begin()
+        let strokeSnapshot = undoManager.strokes
+        let targetSize = pixelSize
+        do {
+            let output = try await Task.detached(priority: .userInitiated) {
+                let mask: RasterizedMask
+                if FeatureFlags.featherEnabled {
+                    mask = try MaskProcessor.rasterizeMask(
+                        strokes: strokeSnapshot,
+                        targetSize: targetSize,
+                        featherPixels: 2
+                    )
+                } else {
+                    let binary = try MaskProcessor.rasterize(
+                        strokes: strokeSnapshot,
+                        targetSize: targetSize
+                    )
+                    mask = RasterizedMask(
+                        width: width,
+                        height: height,
+                        binary: binary,
+                        softWeights: [UInt8](binary)
+                    )
+                }
                 return try InpaintEngine.inpaint(
                     imageBGRA: source,
                     mask: mask,
                     width: width,
-                    height: height,
-                    radius: InpaintEngine.defaultRadius
+                    height: height
                 )
             }.value
-            let image = try await Task.detached(priority: .userInitiated) {
-                try ImageExportService.uiImage(fromBGRA: result, width: width, height: height)
-            }.value
+
+            guard taskController.isActive(token) else {
+                Logger.info("stale inpaint result discarded")
+                return
+            }
+            let image = try ImageExportService.uiImage(fromBGRA: output, width: width, height: height)
             previewImage = image
             showComparison = true
             try stateMachine.processingSucceeded()
+            Logger.info("inpaint succeeded")
         } catch {
-            let failure = normalize(error, fallback: .inpaintFailed)
-            latestError = failure
-            stateMachine.processingFailed(failure)
-            stateMachine.returnToEditing()
+            if taskController.isActive(token) {
+                fail(with: error, fallback: .inpaintFailed)
+            }
         }
+        taskController.finish(token)
     }
 
     func saveResult() async {
@@ -124,44 +170,97 @@ final class SubtitleEraserViewModel: ObservableObject {
             return
         }
         do {
-            if case .failed = stateMachine.state {
-                stateMachine.returnToPreviewing()
+            if stateMachine.state == .completed {
+                try stateMachine.retryExport()
+            } else {
+                try stateMachine.beginExporting()
             }
-            try stateMachine.beginExporting()
-            guard await PhotoLibraryPermissionService.requestAddOnly() else {
+            guard await photoSaver.requestPermission() else {
                 throw SubtitleEraserError.make(.photoPermissionDenied, retryable: true)
             }
             guard StorageSpaceService.hasEnoughSpace() else {
                 throw SubtitleEraserError.make(.insufficientStorage, retryable: true)
             }
-            try await ImageExportService.saveToPhotoLibrary(image: image)
+            try await photoSaver.save(image: image)
             try stateMachine.exportSucceeded()
             lastSaveSucceeded = true
+            Logger.info("photo library save succeeded")
         } catch {
             let failure = normalize(error, fallback: .exportFailed)
             latestError = failure
             stateMachine.exportFailed(failure)
             stateMachine.returnToPreviewing()
+            Logger.error("photo library save failed: \(failure.code.rawValue)")
         }
     }
 
-    func resumeEditing() {
-        guard previewImage != nil else { return }
-        stateMachine.returnToEditing()
+    func backToEditing() {
+        latestError = nil
+        previewImage = nil
         showComparison = false
+        do {
+            try stateMachine.backToEditing()
+        } catch {
+            latestError = .make(.internalStateError, underlying: error.localizedDescription)
+        }
     }
 
     func resetToOriginal() {
+        latestError = nil
         previewImage = nil
         showComparison = false
         comparisonSlider = 0.5
         undoManager.reset()
-        stateMachine.returnToEditing()
+        if stateMachine.state == .previewing || stateMachine.state == .completed {
+            try? stateMachine.backToEditing()
+        } else {
+            stateMachine.returnToEditing()
+        }
     }
 
     func cancelCurrent() {
-        stateMachine.cancel()
+        taskController.cancel()
+        lastWarning = .make(.userCancelled)
         gestureCoordinator.reset()
+        guard stateMachine.state.isBusy else { return }
+        switch stateMachine.state {
+        case .processing, .exporting:
+            try? stateMachine.backToEditing()
+        default:
+            stateMachine.cancel()
+        }
+        Logger.info("current task cancelled")
+    }
+
+    func confirmExit() {
+        taskController.cancel()
+        stateMachine.cancel()
+        showExitConfirm = false
+    }
+
+    private func handleMemoryWarning() {
+        undoManager.releaseCaches()
+        guard stateMachine.state.isBusy else { return }
+        taskController.cancel()
+        let warning = SubtitleEraserError.make(.memoryWarningPaused)
+        stateMachine.cancel(reason: warning)
+        lastWarning = warning
+        Logger.warning("memory warning; active task invalidated")
+    }
+
+    private func fail(with error: Error, fallback: SubtitleEraserErrorCode) {
+        let failure = normalize(error, fallback: fallback)
+        latestError = failure
+        if stateMachine.state.isBusy {
+            switch stateMachine.state {
+            case .exporting: stateMachine.exportFailed(failure)
+            case .processing: stateMachine.processingFailed(failure)
+            default: stateMachine.importFailed(failure)
+            }
+        } else {
+            stateMachine.importFailed(failure)
+        }
+        Logger.error("operation failed: \(failure.code.rawValue)")
     }
 
     private func normalize(_ error: Error, fallback: SubtitleEraserErrorCode) -> SubtitleEraserError {
