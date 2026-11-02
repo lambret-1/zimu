@@ -14,6 +14,6 @@ FOUNDATION_EXPORT NSData * _Nullable inpaintImage(
     int height,
     int radius,
     NSError * _Nullable * _Nullable error
-);
+) NS_SWIFT_NOTHROW;
 
 NS_ASSUME_NONNULL_END
