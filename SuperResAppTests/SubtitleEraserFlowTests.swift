@@ -11,9 +11,9 @@ final class SubtitleEraserFlowTests: XCTestCase {
         format.opaque = true
         let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
             UIColor.systemTeal.setFill()
-            context.fill(CGRect(origin: .zero, size: size))
+            context.cgContext.fill(CGRect(origin: .zero, size: size))
             UIColor.black.setFill()
-            context.fill(CGRect(x: 0, y: 48, width: 64, height: 10))
+            context.cgContext.fill(CGRect(x: 0, y: 48, width: 64, height: 10))
         }
         return try XCTUnwrap(image.pngData())
     }
