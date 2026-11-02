@@ -47,11 +47,10 @@ jobs:
         with:
           xcode-version: '16.2'
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Fix script permissions
-        run: chmod +x Scripts/*.sh
+      - name: Install dependencies
+        run: |
+          brew install xcodegen
+          brew install xcbeautify
 
       - name: Setup OpenCV XCFramework
         run: bash ./Scripts/setup-opencv.sh
@@ -62,12 +61,10 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
-      - name: Cache DerivedData & SwiftPM
+      - name: Cache SwiftPM
         uses: actions/cache@v4
         with:
-          path: |
-            ~/Library/Developer/Xcode/DerivedData
-            ~/Library/Caches/org.swift.swiftpm
+          path: ~/Library/Caches/org.swift.swiftpm
           key: ${{ runner.os }}-xcode-${{ hashFiles('**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-xcode-
@@ -86,7 +83,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            | xcpretty
+            | xcbeautify
 
       - name: Unit Tests (simulator, no signing)
         run: |
@@ -101,7 +98,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            | xcpretty
+            | xcbeautify
 
       - name: Upload Test Results
         if: always()
@@ -123,11 +120,10 @@ jobs:
         with:
           xcode-version: '16.2'
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Fix script permissions
-        run: chmod +x Scripts/*.sh
+      - name: Install dependencies
+        run: |
+          brew install xcodegen
+          brew install xcbeautify
 
       - name: Setup OpenCV XCFramework
         run: bash ./Scripts/setup-opencv.sh
@@ -147,7 +143,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            | xcpretty
+            | xcbeautify
 
       - name: Upload UI Test Results
         if: always()
@@ -158,7 +154,7 @@ jobs:
           retention-days: 7
 
   release-safety:
-    name: Release Safety Checks
+    name: Release Safety Checks & Package
     runs-on: macos-14
     needs: lint
     steps:
@@ -169,11 +165,10 @@ jobs:
         with:
           xcode-version: '16.2'
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Fix script permissions
-        run: chmod +x Scripts/*.sh
+      - name: Install dependencies
+        run: |
+          brew install xcodegen
+          brew install xcbeautify
 
       - name: Setup OpenCV XCFramework
         run: bash ./Scripts/setup-opencv.sh
@@ -184,18 +179,32 @@ jobs:
       - name: Verify no DEBUG leakage in Release source
         run: bash ./Scripts/verify-release-no-debug.sh --source-only
 
-      - name: Build Release (unsigned, generic iOS)
+      # 将 build 升级为 archive，并进入临时目录，为后续验证打包脚本做准备
+      - name: Archive Release (unsigned, generic iOS)
         run: |
           set -o pipefail
-          xcodebuild build \
+          mkdir -p build
+          xcodebuild archive \
             -project SuperResApp.xcodeproj \
             -scheme "$SCHEME" \
-            -destination "generic/platform=iOS" \
             -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "build/SuperResApp.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGN_ENTITLEMENTS="" \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
-            | xcpretty
+            | xcbeautify
+
+      - name: Verify no DEBUG leakage in Archive
+        run: bash ./Scripts/verify-release-no-debug.sh --archive "build/SuperResApp.xcarchive"
+
+      # 新增：试运行打包脚本，提前验证 make-unsigned-ipa.sh 的健壮性
+      - name: Test Package Unsigned IPA script
+        run: |
+          bash ./Scripts/make-unsigned-ipa.sh \
+            "build/SuperResApp.xcarchive" \
+            "build/SuperResApp-test.ipa"
+          ls -la build/
