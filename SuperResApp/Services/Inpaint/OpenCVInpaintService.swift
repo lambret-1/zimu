@@ -30,8 +30,8 @@ enum OpenCVInpaintService {
 
         var bridgeError: NSError?
         guard let result = inpaintImage(
-            imageData as NSData,
-            maskData as NSData,
+            imageData,
+            maskData,
             Int32(width),
             Int32(height),
             Int32(radius),
@@ -43,6 +43,6 @@ enum OpenCVInpaintService {
             )
         }
 
-        return result as Data
+        return result
     }
 }
