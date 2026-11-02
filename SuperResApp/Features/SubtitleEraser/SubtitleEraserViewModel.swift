@@ -136,36 +136,13 @@ final class SubtitleEraserViewModel: ObservableObject {
         let targetSize = pixelSize
         do {
             let result = try await Task.detached(priority: .userInitiated) {
-                let regions = try SubtitleRegionDetector().detect(cgImage: image)
-                guard !regions.isEmpty else {
-                    throw SubtitleEraserError.make(
-                        .detectionFailed,
-                        underlying: "Vision returned no subtitle candidates in the lower image band."
-                    )
-                }
-                let coarseMask = try MaskProcessor.rasterize(
-                    regions: regions,
-                    targetSize: targetSize,
-                    expandPixels: 3
-                )
-                let refinedMask = try SubtitleMaskRefiner.refine(
-                    imageBGRA: source,
-                    coarseMask: coarseMask,
+                try SubtitleAutoDetectionPipeline.run(
+                    image: image,
+                    source: source,
                     width: width,
                     height: height,
-                    options: SubtitleMaskRefiner.Options(dilatePixels: 4, featherPixels: 2)
+                    targetSize: targetSize
                 )
-                guard refinedMask.contains(where: { $0 > 0 }) else {
-                    throw SubtitleEraserError.make(.detectionFailed, underlying: "refined subtitle mask is empty.")
-                }
-                guard let previewPixels = MaskPreviewRenderer.makePixels(
-                    mask: refinedMask,
-                    width: width,
-                    height: height
-                ) else {
-                    throw SubtitleEraserError.make(.detectionFailed, underlying: "mask preview generation failed.")
-                }
-                return (refinedMask, previewPixels)
             }.value
 
             guard taskController.isActive(token) else {
@@ -173,10 +150,10 @@ final class SubtitleEraserViewModel: ObservableObject {
                 taskController.finish(token)
                 return
             }
-            guard let previewImage = MaskPreviewRenderer.makeImage(from: result.1) else {
+            guard let previewImage = MaskPreviewRenderer.makeImage(from: result.preview) else {
                 throw SubtitleEraserError.make(.detectionFailed, underlying: "mask preview image unavailable.")
             }
-            activeAutoMask = result.0
+            activeAutoMask = result.mask
             autoMaskPreviewImage = previewImage
             try stateMachine.detectionSucceeded()
             Logger.info("subtitle auto detection succeeded")
@@ -397,8 +374,48 @@ final class SubtitleEraserViewModel: ObservableObject {
     }
 }
 
+private enum SubtitleAutoDetectionPipeline {
+    static func run(
+        image: CGImage,
+        source: Data,
+        width: Int,
+        height: Int,
+        targetSize: CGSize
+    ) throws -> (mask: Data, preview: MaskPreviewRenderer.Pixels) {
+        let regions = try SubtitleRegionDetector().detect(cgImage: image)
+        guard !regions.isEmpty else {
+            throw SubtitleEraserError.make(
+                .detectionFailed,
+                underlying: "Vision returned no subtitle candidates in the lower image band."
+            )
+        }
+        let coarseMask = try MaskProcessor.rasterize(
+            regions: regions,
+            targetSize: targetSize
+        )
+        let refinedMask = try SubtitleMaskRefiner.refine(
+            imageBGRA: source,
+            coarseMask: coarseMask,
+            width: width,
+            height: height,
+            options: SubtitleMaskRefiner.Options(dilatePixels: 4, featherPixels: 2)
+        )
+        guard refinedMask.contains(where: { $0 > 0 }) else {
+            throw SubtitleEraserError.make(.detectionFailed, underlying: "refined subtitle mask is empty.")
+        }
+        guard let preview = MaskPreviewRenderer.makePixels(
+            mask: refinedMask,
+            width: width,
+            height: height
+        ) else {
+            throw SubtitleEraserError.make(.detectionFailed, underlying: "mask preview generation failed.")
+        }
+        return (refinedMask, preview)
+    }
+}
+
 private enum MaskPreviewRenderer {
-    struct Pixels {
+    struct Pixels: Sendable {
         let data: Data
         let width: Int
         let height: Int
@@ -467,4 +484,3 @@ private enum MaskPreviewRenderer {
         return UIImage(cgImage: image)
     }
 }
-
