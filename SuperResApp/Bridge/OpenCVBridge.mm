@@ -278,16 +278,14 @@ NSData * _Nullable SuperResRefineSubtitleMask(NSData *imageData,
     }
 
     cv::morphologyEx(textMask, textMask, cv::MORPH_CLOSE, topHatKernel);
-    cv::Mat labels;
-    cv::Mat stats;
-    cv::Mat centroids;
-    const int labelCount = cv::connectedComponentsWithStats(
-        textMask, labels, stats, centroids, 8, CV_32S);
+    std::vector<std::vector<cv::Point>> contours;
+    cv::findContours(textMask.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
     cv::Mat cleanMask = cv::Mat::zeros(textMask.size(), CV_8UC1);
-    const int minimumArea = std::max(5, static_cast<int>(coarseArea * 0.01));
-    for (int label = 1; label < labelCount; ++label) {
-        if (stats.at<int>(label, cv::CC_STAT_AREA) >= minimumArea) {
-            cleanMask.setTo(255, labels == label);
+    const double minimumArea = std::max(5.0, coarseArea * 0.01);
+    for (size_t index = 0; index < contours.size(); ++index) {
+        if (cv::contourArea(contours[index]) >= minimumArea) {
+            cv::drawContours(cleanMask, contours, static_cast<int>(index),
+                             cv::Scalar(255), cv::FILLED);
         }
     }
 
