@@ -61,6 +61,27 @@ final class SubtitleEraserStateMachineTests: XCTestCase {
         if case .cancelled = sm.state {} else { XCTFail("expected cancelled") }
     }
 
+    func testRecoveryTransitionsSupportRetryAndSecondPass() throws {
+        let sm = SubtitleEraserStateMachine()
+        try sm.beginImporting()
+        try sm.importSucceeded()
+        try sm.detectionSucceeded()
+        try sm.beginProcessing()
+        sm.processingFailed(.make(.inpaintFailed))
+        sm.returnToEditing()
+        XCTAssertEqual(sm.state, .editing)
+        try sm.beginProcessing()
+        try sm.processingSucceeded()
+        sm.returnToEditing()
+        XCTAssertEqual(sm.state, .editing)
+        try sm.beginProcessing()
+        try sm.processingSucceeded()
+        try sm.beginExporting()
+        sm.exportFailed(.make(.exportFailed))
+        sm.returnToPreviewing()
+        XCTAssertEqual(sm.state, .previewing)
+    }
+
     func testResetFromFailed() {
         let sm = SubtitleEraserStateMachine()
         sm.importFailed(.make(.mediaUnreadable))
