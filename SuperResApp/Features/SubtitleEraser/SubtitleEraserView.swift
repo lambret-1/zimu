@@ -37,7 +37,7 @@ struct SubtitleEraserView: View {
                 }
                 .sheet(isPresented: $showDebugPanel) {
                     #if DEBUG
-                    DebugPanelView(viewModel: viewModel)
+                    DebugPanelContainer(viewModel: viewModel)
                     #endif
                 }
         }
