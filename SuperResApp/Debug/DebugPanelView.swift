@@ -1,6 +1,14 @@
 #if DEBUG
 import SwiftUI
 
+struct DebugPanelContainer: View {
+    let viewModel: SubtitleEraserViewModel
+
+    var body: some View {
+        DebugPanelView(viewModel: viewModel)
+    }
+}
+
 struct DebugPanelView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: SubtitleEraserViewModel
