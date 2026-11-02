@@ -44,10 +44,11 @@ final class TemporaryFileManager {
         try? fileManager.removeItem(at: taskDirectoryURL(taskID: taskID))
     }
 
-    func cleanupAllStale() {
+    func cleanupAllStale(completion: (() -> Void)? = nil) {
         let root = rootURL
         let manager = fileManager
         cleanupQueue.async {
+            defer { completion?() }
             guard let items = try? manager.contentsOfDirectory(
                 at: root,
                 includingPropertiesForKeys: nil

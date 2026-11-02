@@ -55,12 +55,11 @@ final class TemporaryFileManagerTests: XCTestCase {
         _ = try manager.makeTaskDirectory(taskID: secondID)
 
         let cleaned = expectation(description: "temporary task directories cleaned")
-        manager.cleanupAllStale()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            XCTAssertFalse(self.manager.taskDirectoryExists(taskID: firstID))
-            XCTAssertFalse(self.manager.taskDirectoryExists(taskID: secondID))
+        manager.cleanupAllStale {
             cleaned.fulfill()
         }
         wait(for: [cleaned], timeout: 1)
+        XCTAssertFalse(manager.taskDirectoryExists(taskID: firstID))
+        XCTAssertFalse(manager.taskDirectoryExists(taskID: secondID))
     }
 }
