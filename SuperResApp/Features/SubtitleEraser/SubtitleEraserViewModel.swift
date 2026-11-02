@@ -357,7 +357,11 @@ final class SubtitleEraserViewModel: ObservableObject {
         guard stateMachine.state.isBusy else { return }
         taskController.cancel()
         let warning = SubtitleEraserError.make(.memoryWarningPaused)
-        stateMachine.cancel(reason: warning)
+        if case .detecting = stateMachine.state {
+            stateMachine.returnToEditing()
+        } else {
+            stateMachine.cancel(reason: warning)
+        }
         lastWarning = warning
         Logger.warning("memory warning; active task invalidated")
     }
