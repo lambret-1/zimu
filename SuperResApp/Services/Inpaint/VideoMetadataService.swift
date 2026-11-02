@@ -3,6 +3,17 @@ import CoreMedia
 import Foundation
 
 enum VideoMetadataService {
+    private struct ColorInfo {
+        let primaries: String?
+        let transfer: String?
+        let isHDR: Bool
+    }
+
+    private struct AudioInfo {
+        let codec: String?
+        let channels: Int
+    }
+
     enum ReadError: LocalizedError {
         case noVideoTrack
         case loadFailed(String)
@@ -66,11 +77,9 @@ enum VideoMetadataService {
         )
     }
 
-    private static func inspectColor(
-        formats: [CMFormatDescription]
-    ) -> (primaries: String?, transfer: String?, isHDR: Bool) {
+    private static func inspectColor(formats: [CMFormatDescription]) -> ColorInfo {
         guard let format = formats.first else {
-            return (nil, nil, false)
+            return ColorInfo(primaries: nil, transfer: nil, isHDR: false)
         }
 
         let primaries = CMFormatDescriptionGetExtension(
@@ -84,7 +93,11 @@ enum VideoMetadataService {
 
         let isWideGamutHDR = primaries?.contains("2020") == true
         let isHDRTransfer = transfer?.contains("PQ") == true || transfer?.contains("HLG") == true
-        return (primaries, transfer, isWideGamutHDR || isHDRTransfer)
+        return ColorInfo(
+            primaries: primaries,
+            transfer: transfer,
+            isHDR: isWideGamutHDR || isHDRTransfer
+        )
     }
 
     private static func firstFourCC(from formats: [CMFormatDescription]) -> String? {
@@ -104,19 +117,19 @@ enum VideoMetadataService {
         return String(scalars.map { Character(UnicodeScalar($0) ?? "?") })
     }
 
-    private static func inspectAudio(track: AVAssetTrack?) async -> (codec: String?, channels: Int) {
+    private static func inspectAudio(track: AVAssetTrack?) async -> AudioInfo {
         guard let track else {
-            return (nil, 0)
+            return AudioInfo(codec: nil, channels: 0)
         }
         let formats = (try? await track.load(.formatDescriptions)) ?? []
         guard let format = formats.first else {
-            return (nil, 0)
+            return AudioInfo(codec: nil, channels: 0)
         }
 
         let codec = fourCCString(CMFormatDescriptionGetMediaSubType(format))
         let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(format)
         let channels = streamDescription.map { Int($0.pointee.mChannelsPerFrame) } ?? 0
-        return (codec, channels)
+        return AudioInfo(codec: codec, channels: channels)
     }
 
     /// Applies the track transform to obtain the display-oriented pixel dimensions.
