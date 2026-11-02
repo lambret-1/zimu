@@ -1,0 +1,139 @@
+name: Release (Unsigned)
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 1.2.0）'
+        required: true
+        default: '0.0.0'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-unsigned-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SCHEME: SuperResApp
+  WORKSPACE: SuperResApp.xcworkspace
+  APP_NAME: SuperResApp
+  BUILD_DIR: build
+
+jobs:
+  unsigned-build:
+    name: Build Unsigned Artifacts
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.0'
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Setup OpenCV XCFramework
+        run: ./Scripts/setup-opencv.sh
+
+      - name: Verify licenses
+        run: ./Scripts/verify-licenses.sh
+
+      - name: Resolve version & build number
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${APP_NAME}-${VERSION}-${BUILD_NUMBER}-unsigned" >> "$GITHUB_OUTPUT"
+
+      - name: Archive (unsigned)
+        run: |
+          set -o pipefail
+          mkdir -p "$BUILD_DIR"
+          xcodebuild archive \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$BUILD_DIR/${{ env.APP_NAME }}.xcarchive" \
+            MARKETING_VERSION="${{ steps.meta.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.meta.outputs.build }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            | xcpretty
+
+      - name: Verify no DEBUG leakage in archive
+        run: ./Scripts/verify-release-no-debug.sh --archive "$BUILD_DIR/${{ env.APP_NAME }}.xcarchive"
+
+      - name: Package unsigned IPA
+        run: |
+          ./Scripts/make-unsigned-ipa.sh \
+            "$BUILD_DIR/${{ env.APP_NAME }}.xcarchive" \
+            "$BUILD_DIR/${{ steps.meta.outputs.artifact_name }}.ipa"
+
+      - name: Compute checksums
+        run: |
+          cd "$BUILD_DIR"
+          shasum -a 256 "${{ steps.meta.outputs.artifact_name }}.ipa" > "${{ steps.meta.outputs.artifact_name }}.ipa.sha256"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "${{ env.APP_NAME }}.xcarchive" \
+            "${{ steps.meta.outputs.artifact_name }}.xcarchive.zip"
+          shasum -a 256 "${{ steps.meta.outputs.artifact_name }}.xcarchive.zip" > "${{ steps.meta.outputs.artifact_name }}.xcarchive.zip.sha256"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}-ipa
+          path: |
+            ${{ env.BUILD_DIR }}/${{ steps.meta.outputs.artifact_name }}.ipa
+            ${{ env.BUILD_DIR }}/${{ steps.meta.outputs.artifact_name }}.ipa.sha256
+          retention-days: 30
+
+      - name: Upload xcarchive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}-xcarchive
+          path: |
+            ${{ env.BUILD_DIR }}/${{ steps.meta.outputs.artifact_name }}.xcarchive.zip
+            ${{ env.BUILD_DIR }}/${{ steps.meta.outputs.artifact_name }}.xcarchive.zip.sha256
+          retention-days: 30
+
+      - name: Create GitHub Release (tag only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Unsigned ${{ steps.meta.outputs.version }} (build ${{ steps.meta.outputs.build }})"
+          body: |
+            未签名构建产物，仅供重签名、内部分发与审计使用。
+
+            - Version: `${{ steps.meta.outputs.version }}`
+            - Build: `${{ steps.meta.outputs.build }}`
+            - Commit: `${{ github.sha }}`
+            - IPA: `${{ steps.meta.outputs.artifact_name }}.ipa`
+            - Archive: `${{ steps.meta.outputs.artifact_name }}.xcarchive.zip`
+
+            **注意**：未签名 IPA 无法直接安装到真机，需使用企业/开发证书重签名。
+          files: |
+            ${{ env.BUILD_DIR }}/${{ steps.meta.outputs.artifact_name }}.ipa
+            ${{ env.BUILD_DIR }}/${{ steps.meta.outputs.artifact_name }}.ipa.sha256
+            ${{ env.BUILD_DIR }}/${{ steps.meta.outputs.artifact_name }}.xcarchive.zip
+            ${{ env.BUILD_DIR }}/${{ steps.meta.outputs.artifact_name }}.xcarchive.zip.sha256
+          fail_on_unmatched_files: true
