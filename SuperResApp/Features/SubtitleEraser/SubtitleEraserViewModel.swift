@@ -170,6 +170,8 @@ final class SubtitleEraserViewModel: ObservableObject {
                     .detectionFailed,
                     underlying: error.localizedDescription
                 )
+                activeAutoMask = nil
+                autoMaskPreview = []
                 stateMachine.detectionDegraded(warning)
                 lastWarning = warning
                 Logger.warning("subtitle detection degraded to manual mode")
@@ -303,14 +305,18 @@ final class SubtitleEraserViewModel: ObservableObject {
         backToEditing()
     }
 
+    func resetMaskSelection() {
+        undoManager.reset()
+        activeAutoMask = nil
+        autoMaskPreview = []
+    }
+
     func resetToOriginal() {
         latestError = nil
         previewImage = nil
         showComparison = false
         comparisonSlider = 0.5
-        undoManager.reset()
-        activeAutoMask = nil
-        autoMaskPreview = []
+        resetMaskSelection()
         if stateMachine.state == .previewing || stateMachine.state == .completed {
             try? stateMachine.backToEditing()
         } else {

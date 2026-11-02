@@ -277,8 +277,11 @@ struct SubtitleEraserView: View {
                     .disabled(!undoManager.canUndo || viewModel.isProcessing)
                 Button("重做") { undoManager.redo() }
                     .disabled(!undoManager.canRedo || viewModel.isProcessing)
-                Button("重置", role: .destructive) { undoManager.reset() }
-                    .disabled(undoManager.strokes.isEmpty || viewModel.isProcessing)
+                Button("重置", role: .destructive) { viewModel.resetMaskSelection() }
+                    .disabled(
+                        undoManager.strokes.isEmpty && viewModel.activeAutoMask == nil
+                            || viewModel.isProcessing
+                    )
                 Spacer(minLength: 4)
                 Button {
                     Task { await viewModel.executeInpaint() }
