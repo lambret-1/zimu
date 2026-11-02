@@ -14,7 +14,7 @@ FRAMEWORKS_DIR="Frameworks"
 OUTPUT_DIR="${FRAMEWORKS_DIR}/opencv2.xcframework"
 WORK_DIR="${FRAMEWORKS_DIR}/.opencv-download"
 
-if [ -d "$OUTPUT_DIR" ] && [ -d "$OUTPUT_DIR/ios-arm64/opencv2.framework" ] && [ -d "$OUTPUT_DIR/ios-arm64_x86_64-simulator/opencv2.framework" ]; then
+if [ -f "$OUTPUT_DIR/Info.plist" ] && [ "$(find "$OUTPUT_DIR" -type d -name opencv2.framework | wc -l | tr -d ' ')" -ge 2 ]; then
   echo "OpenCV XCFramework already exists."
   exit 0
 fi
