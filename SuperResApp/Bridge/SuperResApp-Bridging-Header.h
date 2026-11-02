@@ -5,6 +5,10 @@
 
 #import <Foundation/Foundation.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 NS_ASSUME_NONNULL_BEGIN
 
 FOUNDATION_EXPORT NSData * _Nullable inpaintImage(
@@ -17,3 +21,7 @@ FOUNDATION_EXPORT NSData * _Nullable inpaintImage(
 ) NS_SWIFT_NOTHROW;
 
 NS_ASSUME_NONNULL_END
+
+#ifdef __cplusplus
+}
+#endif
