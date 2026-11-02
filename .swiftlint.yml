@@ -47,6 +47,8 @@ identifier_name:
     warning: 40
   excluded:
     - id
+    - x
+    - y
 
 force_unwrapping: error
 implicitly_unwrapped_optional: error
