@@ -47,7 +47,7 @@ if [ -z "$DEVICE_FRAMEWORK" ] || [ -z "$SIMULATOR_FRAMEWORK" ]; then
   exit 1
 fi
 
-if ! find "$DEVICE_FRAMEWORK/Headers" -type f -path '*/opencv2/opencv.hpp' | grep -q .; then
+if [ ! -f "$DEVICE_FRAMEWORK/Headers/opencv2/opencv.hpp" ]; then
   echo "::error::opencv2/opencv.hpp is missing from the device framework."
   exit 1
 fi
@@ -59,8 +59,12 @@ fi
 
 xcodebuild -create-xcframework -framework "$DEVICE_FRAMEWORK" -framework "$SIMULATOR_FRAMEWORK" -output "$OUTPUT_DIR"
 
-test -d "$OUTPUT_DIR/ios-arm64/opencv2.framework"
-test -d "$OUTPUT_DIR/ios-arm64_x86_64-simulator/opencv2.framework"
+test -f "$OUTPUT_DIR/Info.plist"
+FRAMEWORK_COUNT="$(find "$OUTPUT_DIR" -type d -name opencv2.framework | wc -l | tr -d ' ')"
+if [ "$FRAMEWORK_COUNT" -lt 2 ]; then
+  echo "::error::Expected device and simulator OpenCV framework slices."
+  exit 1
+fi
 
 rm -rf "$WORK_DIR"
 echo "OpenCV ${VERSION} XCFramework ready at ${OUTPUT_DIR}."
