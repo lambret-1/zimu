@@ -161,3 +161,154 @@ NSData * _Nullable inpaintImage(NSData *imageData,
     return [NSData dataWithBytes:outputBGRA.data
                           length:outputBGRA.total() * outputBGRA.elemSize()];
 }
+
+
+/// Extracts subtitle strokes from a coarse region, then pads and feathers the mask.
+/// All dimensions and parameters are validated before constructing OpenCV matrices.
+NSData * _Nullable SuperResRefineSubtitleMask(NSData *imageData,
+                                               NSData *coarseMaskData,
+                                               NSInteger width,
+                                               NSInteger height,
+                                               NSInteger dilateRadius,
+                                               NSInteger featherPixels,
+                                               NSError **error) {
+    if (imageData == nil || coarseMaskData == nil || width < 1 || height < 1
+        || width > kMaxSide || height > kMaxSide) {
+        SetBridgeError(error, 4002, @"Invalid image dimensions or input buffers.");
+        return nil;
+    }
+
+    const size_t pixelWidth = static_cast<size_t>(width);
+    const size_t pixelHeight = static_cast<size_t>(height);
+    if (pixelWidth > std::numeric_limits<size_t>::max() / pixelHeight) {
+        SetBridgeError(error, 4002, @"Image dimensions overflow the supported buffer size.");
+        return nil;
+    }
+    const size_t pixelCount = pixelWidth * pixelHeight;
+    if (pixelCount > kMaxPixels
+        || pixelCount > std::numeric_limits<size_t>::max() / 4u) {
+        SetBridgeError(error, 4002, @"Image exceeds the supported pixel limit.");
+        return nil;
+    }
+    if (imageData.length != pixelCount * 4u || coarseMaskData.length != pixelCount) {
+        SetBridgeError(error, 4002, @"Buffer size mismatch.");
+        return nil;
+    }
+    if (dilateRadius < 0 || dilateRadius > kMaxRadius
+        || featherPixels < 0 || featherPixels > 32) {
+        SetBridgeError(error, 4002, @"Refinement radius is outside the supported range.");
+        return nil;
+    }
+
+    const uint8_t *imageBytes = static_cast<const uint8_t *>(imageData.bytes);
+    const uint8_t *maskBytes = static_cast<const uint8_t *>(coarseMaskData.bytes);
+
+    int x0 = static_cast<int>(width);
+    int y0 = static_cast<int>(height);
+    int x1 = -1;
+    int y1 = -1;
+    for (int y = 0; y < static_cast<int>(height); ++y) {
+        for (int x = 0; x < static_cast<int>(width); ++x) {
+            if (maskBytes[static_cast<size_t>(y) * pixelWidth + static_cast<size_t>(x)] == 0) {
+                continue;
+            }
+            x0 = std::min(x0, x);
+            x1 = std::max(x1, x);
+            y0 = std::min(y0, y);
+            y1 = std::max(y1, y);
+        }
+    }
+
+    if (x1 < x0 || y1 < y0) {
+        return [coarseMaskData copy];
+    }
+
+    const int textHeight = y1 - y0 + 1;
+    int kernelSize = std::max(9, static_cast<int>(textHeight * 0.15));
+    if (kernelSize % 2 == 0) {
+        ++kernelSize;
+    }
+    kernelSize = std::min(kernelSize, 255);
+    const int margin = std::max(4, kernelSize / 2);
+    x0 = std::max(0, x0 - margin);
+    y0 = std::max(0, y0 - margin);
+    x1 = std::min(static_cast<int>(width) - 1, x1 + margin);
+    y1 = std::min(static_cast<int>(height) - 1, y1 + margin);
+
+    const cv::Rect roiRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+    cv::Mat sourceBGRA(static_cast<int>(height), static_cast<int>(width), CV_8UC4,
+                       const_cast<uint8_t *>(imageBytes));
+    cv::Mat coarse(static_cast<int>(height), static_cast<int>(width), CV_8UC1,
+                   const_cast<uint8_t *>(maskBytes));
+    const cv::Mat roiBGRA = sourceBGRA(roiRect);
+    const cv::Mat roiCoarse = coarse(roiRect);
+
+    cv::Mat gray;
+    cv::cvtColor(roiBGRA, gray, cv::COLOR_BGRA2GRAY);
+
+    const cv::Mat topHatKernel = cv::getStructuringElement(
+        cv::MORPH_RECT, cv::Size(kernelSize, kernelSize));
+    cv::Mat topHatLight;
+    cv::Mat topHatDark;
+    cv::morphologyEx(gray, topHatLight, cv::MORPH_TOPHAT, topHatKernel);
+    cv::Mat grayInverse = 255 - gray;
+    cv::morphologyEx(grayInverse, topHatDark, cv::MORPH_TOPHAT, topHatKernel);
+
+    cv::Mat binaryLight;
+    cv::Mat binaryDark;
+    cv::threshold(topHatLight, binaryLight, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+    cv::threshold(topHatDark, binaryDark, 0, 255, cv::THRESH_BINARY | cv::THRESH_OTSU);
+    cv::bitwise_and(binaryLight, roiCoarse, binaryLight);
+    cv::bitwise_and(binaryDark, roiCoarse, binaryDark);
+
+    const double lightArea = cv::countNonZero(binaryLight);
+    const double darkArea = cv::countNonZero(binaryDark);
+    const double coarseArea = cv::countNonZero(roiCoarse);
+
+    cv::Mat textMask;
+    if (lightArea >= darkArea && lightArea > 0) {
+        textMask = binaryLight;
+    } else if (darkArea > lightArea && darkArea > 0) {
+        textMask = binaryDark;
+    }
+
+    if (textMask.empty()
+        || static_cast<double>(cv::countNonZero(textMask)) < coarseArea * 0.02) {
+        return [coarseMaskData copy];
+    }
+
+    cv::morphologyEx(textMask, textMask, cv::MORPH_CLOSE, topHatKernel);
+    cv::Mat labels;
+    cv::Mat stats;
+    cv::Mat centroids;
+    const int labelCount = cv::connectedComponentsWithStats(
+        textMask, labels, stats, centroids, 8, CV_32S);
+    cv::Mat cleanMask = cv::Mat::zeros(textMask.size(), CV_8UC1);
+    const int minimumArea = std::max(5, static_cast<int>(coarseArea * 0.01));
+    for (int label = 1; label < labelCount; ++label) {
+        if (stats.at<int>(label, cv::CC_STAT_AREA) >= minimumArea) {
+            cleanMask.setTo(255, labels == label);
+        }
+    }
+
+    const int dilationSize = static_cast<int>(dilateRadius) * 2 + 1;
+    const cv::Mat dilationKernel = cv::getStructuringElement(
+        cv::MORPH_ELLIPSE, cv::Size(dilationSize, dilationSize));
+    cv::Mat dilatedMask;
+    cv::dilate(cleanMask, dilatedMask, dilationKernel);
+
+    cv::Mat fullMask = cv::Mat::zeros(
+        static_cast<int>(height), static_cast<int>(width), CV_8UC1);
+    dilatedMask.copyTo(fullMask(roiRect));
+
+    if (featherPixels > 0) {
+        const int featherSize = static_cast<int>(featherPixels) * 2 + 1;
+        cv::Mat blurred;
+        cv::GaussianBlur(fullMask, blurred, cv::Size(featherSize, featherSize), 0);
+        fullMask.copyTo(blurred, fullMask);
+        fullMask = blurred;
+    }
+
+    return [NSData dataWithBytes:fullMask.data
+                          length:fullMask.total() * fullMask.elemSize()];
+}
