@@ -14,16 +14,16 @@ jobs:
         run: |
           set -e
           required=(
-            "Features/SubtitleEraser/SubtitleEraserView.swift"
-            "Features/SubtitleEraser/SubtitleEraserViewModel.swift"
-            "Features/SubtitleEraser/SubtitleEraserStateMachine.swift"
-            "Features/SubtitleEraser/GestureCoordinator.swift"
-            "Services/Inpaint/InpaintEngine.swift"
-            "Services/Inpaint/VideoInpaintPipeline.swift"
-            "Services/Inpaint/TemporaryFileManager.swift"
-            "Utils/Logger.swift"
-            "Bridge/OpenCVBridge.mm"
-            "Bridge/SuperResApp-Bridging-Header.h"
+            "project.yml"
+            "SuperResApp/App/SuperResAppApp.swift"
+            "SuperResApp/App/RootView.swift"
+            "SuperResApp/Features/SubtitleEraser/SubtitleEraserView.swift"
+            "SuperResApp/Resources/Info.plist"
+            "SuperResApp/Resources/Licenses/OpenCV-LICENSE.txt"
+            "SuperResApp/Bridge/OpenCVBridge.mm"
+            "SuperResApp/Bridge/SuperResApp-Bridging-Header.h"
+            "SuperResAppTests/SuperResAppTests.swift"
+            "SuperResAppUITests/SuperResAppUITests.swift"
           )
           for f in "${required[@]}"; do
             if [ ! -f "$f" ]; then
@@ -41,7 +41,7 @@ jobs:
       - name: Ensure Debug/ files are DEBUG-only
         run: |
           set -e
-          for f in Debug/*.swift; do
+          for f in SuperResApp/Debug/*.swift; do
             if ! grep -q "#if DEBUG" "$f"; then
               echo "::error file=$f::Debug file must be wrapped with #if DEBUG"
               exit 1
