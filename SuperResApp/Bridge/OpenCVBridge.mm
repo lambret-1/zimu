@@ -1,9 +1,7 @@
 #import "SuperResApp-Bridging-Header.h"
 #import <opencv2/opencv.hpp>
 
-#include <exception>
 #include <limits>
-#include <vector>
 
 static NSString * const OpenCVBridgeErrorDomain = @"OpenCVBridge";
 
@@ -17,6 +15,9 @@ static void SetBridgeError(NSError **error, NSInteger code, NSString *message) {
 
 /// Repairs BGRA pixels under a single-channel mask using Telea inpainting.
 /// The input alpha channel is preserved unchanged.
+///
+/// opencv-mobile is built without C++ exceptions and RTTI. Validate all
+/// externally controlled arguments before calling OpenCV; do not catch cv::Exception.
 NSData * _Nullable inpaintImage(NSData *imageData,
                                 NSData *maskData,
                                 int width,
@@ -47,32 +48,26 @@ NSData * _Nullable inpaintImage(NSData *imageData,
         return nil;
     }
 
-    try {
-        cv::Mat sourceBGRA(height, width, CV_8UC4, const_cast<void *>(imageData.bytes));
-        cv::Mat mask(height, width, CV_8UC1, const_cast<void *>(maskData.bytes));
-        cv::Mat sourceBGR;
-        cv::Mat repairedBGR;
-        cv::cvtColor(sourceBGRA, sourceBGR, CV_BGRA2BGR);
-        cv::inpaint(sourceBGR, mask, repairedBGR, static_cast<double>(radius), cv::INPAINT_TELEA);
+    cv::Mat sourceBGRA(height, width, CV_8UC4, const_cast<void *>(imageData.bytes));
+    cv::Mat mask(height, width, CV_8UC1, const_cast<void *>(maskData.bytes));
+    cv::Mat sourceBGR;
+    cv::Mat repairedBGR;
+    cv::cvtColor(sourceBGRA, sourceBGR, CV_BGRA2BGR);
+    cv::inpaint(sourceBGR, mask, repairedBGR, static_cast<double>(radius), cv::INPAINT_TELEA);
 
-        std::vector<cv::Mat> repairedChannels;
-        std::vector<cv::Mat> originalChannels;
-        cv::split(repairedBGR, repairedChannels);
-        cv::split(sourceBGRA, originalChannels);
-        repairedChannels.push_back(originalChannels[3]);
-
-        cv::Mat outputBGRA;
-        cv::merge(repairedChannels, outputBGRA);
-        return [NSData dataWithBytes:outputBGRA.data
-                              length:outputBGRA.total() * outputBGRA.elemSize()];
-    } catch (const cv::Exception &exception) {
-        SetBridgeError(error, -4, [NSString stringWithUTF8String:exception.what()] ?: @"OpenCV processing failed.");
-        return nil;
-    } catch (const std::exception &exception) {
-        SetBridgeError(error, -5, [NSString stringWithUTF8String:exception.what()] ?: @"C++ processing failed.");
-        return nil;
-    } catch (...) {
-        SetBridgeError(error, -6, @"Unknown C++ processing error.");
-        return nil;
+    cv::Mat outputBGRA(height, width, CV_8UC4);
+    for (int row = 0; row < height; ++row) {
+        const cv::Vec3b *repairedPixels = repairedBGR.ptr<cv::Vec3b>(row);
+        const cv::Vec4b *sourcePixels = sourceBGRA.ptr<cv::Vec4b>(row);
+        cv::Vec4b *outputPixels = outputBGRA.ptr<cv::Vec4b>(row);
+        for (int column = 0; column < width; ++column) {
+            outputPixels[column][0] = repairedPixels[column][0];
+            outputPixels[column][1] = repairedPixels[column][1];
+            outputPixels[column][2] = repairedPixels[column][2];
+            outputPixels[column][3] = sourcePixels[column][3];
+        }
     }
+
+    return [NSData dataWithBytes:outputBGRA.data
+                          length:outputBGRA.total() * outputBGRA.elemSize()];
 }
