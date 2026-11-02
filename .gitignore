@@ -1,0 +1,29 @@
+# Xcode
+DerivedData/
+build/
+*.xcresult
+*.xcarchive
+*.ipa
+*.dSYM.zip
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# SwiftPM
+.swiftpm/
+
+# Certs & keys（本流水线不签名，仍防止误提交）
+*.p8
+*.p12
+*.mobileprovision
+private_keys/
+
+# Env
+.env
+.env.*
+
+# OpenCV XCFramework 通过 Git LFS 跟踪：
+# Frameworks/opencv2.xcframework/**
+
+# macOS
+.DS_Store
