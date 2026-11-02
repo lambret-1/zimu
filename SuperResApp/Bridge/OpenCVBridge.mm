@@ -21,7 +21,6 @@ static void SetBridgeError(NSError **error, NSInteger code, NSString *message) {
 /// mask leaves too little trustworthy reference content.
 static int ValidateMask(const uint8_t *bytes, int width, int height) {
     size_t maskedPixels = 0;
-    size_t unmaskedPixels = 0;
     bool touchesImageEdge = false;
     const size_t totalPixels = static_cast<size_t>(width) * static_cast<size_t>(height);
 
@@ -29,12 +28,11 @@ static int ValidateMask(const uint8_t *bytes, int width, int height) {
         for (int x = 0; x < width; ++x) {
             if (bytes[static_cast<size_t>(y) * static_cast<size_t>(width)
                       + static_cast<size_t>(x)] == 0) {
-                ++unmaskedPixels;
-            } else {
-                ++maskedPixels;
-                if (x == 0 || y == 0 || x == width - 1 || y == height - 1) {
-                    touchesImageEdge = true;
-                }
+                continue;
+            }
+            ++maskedPixels;
+            if (x == 0 || y == 0 || x == width - 1 || y == height - 1) {
+                touchesImageEdge = true;
             }
         }
     }
@@ -42,7 +40,29 @@ static int ValidateMask(const uint8_t *bytes, int width, int height) {
     if (maskedPixels == 0) {
         return -1;
     }
-    if (unmaskedPixels < 4) {
+
+    // Count distinct unmasked pixels directly adjacent to the masked region.
+    // These are the actual boundary samples available to seed Telea's front.
+    size_t boundaryReferencePixels = 0;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const size_t index = static_cast<size_t>(y) * static_cast<size_t>(width)
+                + static_cast<size_t>(x);
+            if (bytes[index] != 0) {
+                continue;
+            }
+
+            const bool adjacentToMask =
+                (x > 0 && bytes[index - 1] != 0)
+                || (x + 1 < width && bytes[index + 1] != 0)
+                || (y > 0 && bytes[index - static_cast<size_t>(width)] != 0)
+                || (y + 1 < height && bytes[index + static_cast<size_t>(width)] != 0);
+            if (adjacentToMask) {
+                ++boundaryReferencePixels;
+            }
+        }
+    }
+    if (boundaryReferencePixels < 4) {
         return -2;
     }
 
