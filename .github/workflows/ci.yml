@@ -13,7 +13,6 @@ concurrency:
 
 env:
   SCHEME: SuperResApp
-  WORKSPACE: SuperResApp.xcworkspace
   UNIT_TEST_TARGET: SuperResAppTests
   UI_TEST_TARGET: SuperResAppUITests
 
@@ -59,6 +58,15 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Fix script permissions
+        run: chmod +x Scripts/*.sh
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
       - name: Show Xcode version
         run: xcodebuild -version
 
@@ -83,7 +91,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild build \
-            -workspace "$WORKSPACE" \
+            -project SuperResApp.xcodeproj \
             -scheme "$SCHEME" \
             -destination "platform=iOS Simulator,name=${{ matrix.device }},OS=${{ matrix.ios }}" \
             -configuration Debug \
@@ -96,7 +104,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test \
-            -workspace "$WORKSPACE" \
+            -project SuperResApp.xcodeproj \
             -scheme "$SCHEME" \
             -destination "platform=iOS Simulator,name=${{ matrix.device }},OS=${{ matrix.ios }}" \
             -only-testing:"$UNIT_TEST_TARGET" \
@@ -136,14 +144,24 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Fix script permissions
+        run: chmod +x Scripts/*.sh
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
       - name: Setup OpenCV XCFramework
+        if: hashFiles('Frameworks/opencv2.xcframework/**') != ''
         run: bash ./Scripts/setup-opencv.sh
 
       - name: UI Tests
         run: |
           set -o pipefail
           xcodebuild test \
-            -workspace "$WORKSPACE" \
+            -project SuperResApp.xcodeproj \
             -scheme "$SCHEME" \
             -destination "platform=iOS Simulator,name=iPhone 15,OS=17.5" \
             -only-testing:"$UI_TEST_TARGET" \
@@ -182,7 +200,17 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Fix script permissions
+        run: chmod +x Scripts/*.sh
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
       - name: Setup OpenCV XCFramework
+        if: hashFiles('Frameworks/opencv2.xcframework/**') != ''
         run: bash ./Scripts/setup-opencv.sh
 
       - name: Verify no DEBUG leakage in Release source
@@ -192,7 +220,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild build \
-            -workspace "$WORKSPACE" \
+            -project SuperResApp.xcodeproj \
             -scheme "$SCHEME" \
             -destination "generic/platform=iOS" \
             -configuration Release \
