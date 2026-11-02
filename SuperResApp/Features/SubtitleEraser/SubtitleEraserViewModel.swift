@@ -21,13 +21,13 @@ final class SubtitleEraserViewModel: ObservableObject {
     private var originalBGRA: Data?
 
     init(
-        stateMachine: SubtitleEraserStateMachine = SubtitleEraserStateMachine(),
-        undoManager: MaskUndoManager = MaskUndoManager(),
-        gestureCoordinator: GestureCoordinator = GestureCoordinator()
+        stateMachine: SubtitleEraserStateMachine? = nil,
+        undoManager: MaskUndoManager? = nil,
+        gestureCoordinator: GestureCoordinator? = nil
     ) {
-        self.stateMachine = stateMachine
-        self.undoManager = undoManager
-        self.gestureCoordinator = gestureCoordinator
+        self.stateMachine = stateMachine ?? SubtitleEraserStateMachine()
+        self.undoManager = undoManager ?? MaskUndoManager()
+        self.gestureCoordinator = gestureCoordinator ?? GestureCoordinator()
     }
 
     var canExecute: Bool {
