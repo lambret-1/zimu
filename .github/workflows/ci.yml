@@ -53,6 +53,9 @@ jobs:
       - name: Fix script permissions
         run: chmod +x Scripts/*.sh
 
+      - name: Setup OpenCV XCFramework
+        run: bash ./Scripts/setup-opencv.sh
+
       - name: Generate Xcode project
         run: xcodegen generate
 
@@ -68,10 +71,6 @@ jobs:
           key: ${{ runner.os }}-xcode-${{ hashFiles('**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-xcode-
-
-      - name: Setup OpenCV XCFramework
-        if: hashFiles('Frameworks/opencv2.xcframework/**') != ''
-        run: bash ./Scripts/setup-opencv.sh
 
       - name: Verify licenses
         run: bash ./Scripts/verify-licenses.sh
