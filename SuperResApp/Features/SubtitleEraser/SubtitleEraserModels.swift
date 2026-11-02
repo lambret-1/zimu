@@ -18,6 +18,7 @@ struct SubtitleEraserMedia: Equatable {
     let durationSeconds: Double?
     let isHDR: Bool
 
+    // swiftlint:disable:next function_parameter_count
     init(id: UUID = UUID(),
          kind: SubtitleEraserMediaKind,
          sourceURL: URL,
