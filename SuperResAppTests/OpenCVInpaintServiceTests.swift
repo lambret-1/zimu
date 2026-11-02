@@ -44,21 +44,18 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         return bytes
     }
 
-    private func makeMask(
-        width: Int,
-        height: Int,
-        x: Int,
-        y: Int,
-        maskWidth: Int,
-        maskHeight: Int
-    ) -> Data {
+    private func makeMask(width: Int, height: Int, rect: CGRect) -> Data {
         var bytes = Data(count: width * height)
+        let minX = Int(rect.minX)
+        let minY = Int(rect.minY)
+        let maxX = Int(rect.maxX)
+        let maxY = Int(rect.maxY)
         bytes.withUnsafeMutableBytes { rawBuffer in
             guard let base = rawBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
                 return
             }
-            for row in y..<(y + maskHeight) {
-                for column in x..<(x + maskWidth) {
+            for row in minY..<maxY {
+                for column in minX..<maxX {
                     base[row * width + column] = 255
                 }
             }
@@ -70,9 +67,7 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         let width = 64
         let height = 64
         let image = makeGradientBGRA(width: width, height: height)
-        let mask = makeMask(
-            width: width, height: height, x: 28, y: 28, maskWidth: 8, maskHeight: 8
-        )
+        let mask = makeMask(width: width, height: height, rect: CGRect(x: 28, y: 28, width: 8, height: 8))
 
         let output = try OpenCVInpaintService.inpaintBGRA(
             imageData: image, maskData: mask, width: width, height: height
@@ -84,9 +79,7 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         let width = 32
         let height = 32
         let image = makeBGRA(width: width, height: height, alpha: 117)
-        let mask = makeMask(
-            width: width, height: height, x: 12, y: 12, maskWidth: 8, maskHeight: 8
-        )
+        let mask = makeMask(width: width, height: height, rect: CGRect(x: 12, y: 12, width: 8, height: 8))
 
         let output = try OpenCVInpaintService.inpaintBGRA(
             imageData: image, maskData: mask, width: width, height: height
@@ -106,7 +99,7 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         let maskHeight = 8
         let mask = makeMask(
             width: width, height: height,
-            x: maskX, y: maskY, maskWidth: maskWidth, maskHeight: maskHeight
+            rect: CGRect(x: maskX, y: maskY, width: maskWidth, height: maskHeight)
         )
 
         let output = try OpenCVInpaintService.inpaintBGRA(
@@ -130,9 +123,7 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         let width = 32
         let height = 32
         let image = makeGradientBGRA(width: width, height: height)
-        let mask = makeMask(
-            width: width, height: height, x: 12, y: 12, maskWidth: 8, maskHeight: 8
-        )
+        let mask = makeMask(width: width, height: height, rect: CGRect(x: 12, y: 12, width: 8, height: 8))
         let output = try OpenCVInpaintService.inpaintBGRA(
             imageData: image, maskData: mask, width: width, height: height
         )
@@ -157,9 +148,7 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         let width = 64
         let height = 32
         let image = makeGradientBGRA(width: width, height: height)
-        let mask = makeMask(
-            width: width, height: height, x: 28, y: 12, maskWidth: 8, maskHeight: 8
-        )
+        let mask = makeMask(width: width, height: height, rect: CGRect(x: 28, y: 12, width: 8, height: 8))
         let output = try OpenCVInpaintService.inpaintBGRA(
             imageData: image, maskData: mask, width: width, height: height
         )
@@ -218,9 +207,7 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         let width = 16
         let height = 16
         let image = makeGradientBGRA(width: width, height: height)
-        let mask = makeMask(
-            width: width, height: height, x: 6, y: 6, maskWidth: 4, maskHeight: 4
-        )
+        let mask = makeMask(width: width, height: height, rect: CGRect(x: 6, y: 6, width: 4, height: 4))
 
         for radius in [0, 21] {
             XCTAssertThrowsError(
