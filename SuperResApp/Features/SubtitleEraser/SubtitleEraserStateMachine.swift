@@ -152,6 +152,7 @@ final class SubtitleEraserStateMachine: ObservableObject {
         min(max(value, 0), 1)
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     static func allowedTransition(from: SubtitleEraserState,
                                   to: SubtitleEraserState) -> Bool {
         switch (from, to) {
