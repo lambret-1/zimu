@@ -45,6 +45,7 @@ extension SubtitleEraserErrorCode {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     var defaultUserMessage: String {
         switch self {
         case .internalStateError:     return "内部状态异常，请重启页面后重试。"

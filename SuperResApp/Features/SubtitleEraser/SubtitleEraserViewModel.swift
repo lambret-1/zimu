@@ -107,6 +107,9 @@ final class SubtitleEraserViewModel: ObservableObject {
         }
 
         do {
+            if case .failed = stateMachine.state {
+                stateMachine.returnToEditing()
+            }
             try stateMachine.beginProcessing()
         } catch {
             fail(with: error, fallback: .internalStateError)
