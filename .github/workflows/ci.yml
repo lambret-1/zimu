@@ -208,3 +208,26 @@ jobs:
             "build/SuperResApp.xcarchive" \
             "build/SuperResApp-test.ipa"
           ls -la build/
+      - name: Report Release size and linked inpaint symbols
+        run: |
+          APP_PATH="build/SuperResApp.xcarchive/Products/Applications/SuperResApp.app"
+          EXECUTABLE="$APP_PATH/SuperResApp"
+          APP_BYTES="$(du -sk "$APP_PATH" | awk '{print $1 * 1024}')"
+          EXECUTABLE_BYTES="$(stat -f%z "$EXECUTABLE")"
+          IPA_BYTES="$(stat -f%z "build/SuperResApp-test.ipa")"
+          echo "Release app bundle bytes: $APP_BYTES"
+          echo "Release executable bytes: $EXECUTABLE_BYTES"
+          echo "Unsigned IPA bytes: $IPA_BYTES"
+          du -sh "$APP_PATH" "build/SuperResApp-test.ipa"
+          if nm -g "$EXECUTABLE" | grep -i 'inpaint' | head -20; then
+            echo "Inpaint symbols are present in the Release executable."
+          else
+            echo "::warning::No readable inpaint symbol found by nm; inspect link map before concluding dead stripping."
+          fi
+
+      - name: Upload unsigned Release IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-release-ipa
+          path: build/SuperResApp-test.ipa
+          retention-days: 7
