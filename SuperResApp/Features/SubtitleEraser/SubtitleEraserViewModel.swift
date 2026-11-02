@@ -395,6 +395,8 @@ final class SubtitleEraserViewModel: ObservableObject {
         (error as? SubtitleEraserError)
             ?? .make(fallback, underlying: error.localizedDescription)
     }
+}
+
 private enum MaskPreviewRenderer {
     struct Pixels {
         let data: Data
@@ -466,4 +468,3 @@ private enum MaskPreviewRenderer {
     }
 }
 
-}
