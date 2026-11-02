@@ -65,9 +65,6 @@ enum MaskProcessor {
         if expansion > 0 {
             bytes = dilate(bytes, width: width, height: height, iterations: expansion)
         }
-        guard bytes.contains(255) else {
-            throw SubtitleEraserError.make(.inpaintFailed, underlying: "mask contains no brush pixels")
-        }
         return Data(bytes)
     }
 
