@@ -32,15 +32,15 @@ enum MaskProcessor {
         guard !overflow, pixelCount > 0, pixelCount <= maxPixels else {
             throw SubtitleEraserError.make(.mediaTooLarge, underlying: "mask dimensions exceed limit")
         }
+        let (byteCount, byteOverflow) = width.multipliedReportingOverflow(by: height)
+        guard !byteOverflow else {
+            throw SubtitleEraserError.make(.mediaTooLarge, underlying: "mask buffer size overflow")
+        }
         guard !strokes.isEmpty || baseMask != nil else {
             throw SubtitleEraserError.make(.inpaintFailed, underlying: "empty strokes and base mask")
         }
         if let baseMask, baseMask.count != byteCount {
             throw SubtitleEraserError.make(.inpaintFailed, underlying: "base mask length mismatch")
-        }
-        let (byteCount, byteOverflow) = width.multipliedReportingOverflow(by: height)
-        guard !byteOverflow else {
-            throw SubtitleEraserError.make(.mediaTooLarge, underlying: "mask buffer size overflow")
         }
 
         var data = baseMask ?? Data(count: byteCount)

@@ -140,8 +140,8 @@ struct SubtitleEraserView: View {
                 Image(uiImage: original).resizable().scaledToFit()
                 if !viewModel.autoMaskPreview.isEmpty {
                     GeometryReader { geometry in
-                        ForEach(Array(viewModel.autoMaskPreview.enumerated()), id: \.offset) { _, region in
-                            let rect = region.toCGRect(in: geometry.size)
+                        ForEach(Array(viewModel.autoMaskPreview.enumerated()), id: \.offset) { item in
+                            let rect = item.element.toCGRect(in: geometry.size)
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(Color.red.opacity(0.24))
                                 .overlay {
