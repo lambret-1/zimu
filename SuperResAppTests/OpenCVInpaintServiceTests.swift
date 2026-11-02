@@ -5,9 +5,9 @@ final class OpenCVInpaintServiceTests: XCTestCase {
     private func makeBGRA(
         width: Int,
         height: Int,
-        b: UInt8 = 30,
-        g: UInt8 = 90,
-        r: UInt8 = 160,
+        blue: UInt8 = 30,
+        green: UInt8 = 90,
+        red: UInt8 = 160,
         alpha: UInt8 = 128
     ) -> Data {
         var bytes = Data(count: width * height * 4)
@@ -16,9 +16,9 @@ final class OpenCVInpaintServiceTests: XCTestCase {
                 return
             }
             for pixel in 0..<(width * height) {
-                base[pixel * 4] = b
-                base[pixel * 4 + 1] = g
-                base[pixel * 4 + 2] = r
+                base[pixel * 4] = blue
+                base[pixel * 4 + 1] = green
+                base[pixel * 4 + 2] = red
                 base[pixel * 4 + 3] = alpha
             }
         }
@@ -192,7 +192,6 @@ final class OpenCVInpaintServiceTests: XCTestCase {
             XCTAssertEqual((error as? SubtitleEraserError)?.code, .inpaintFailed)
         }
     }
-
 
     func testHighCoverageMaskTouchingImageEdgeIsRejected() {
         let width = 16
