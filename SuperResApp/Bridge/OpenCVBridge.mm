@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <opencv2/opencv.hpp>
 
+#include <exception>
 #include <limits>
 #include <vector>
 
