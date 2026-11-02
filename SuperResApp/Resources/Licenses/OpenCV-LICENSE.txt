@@ -1,0 +1,12 @@
+OpenCV
+Copyright (C) 2000-2024, Intel Corporation, all rights reserved.
+Copyright (C) 2009-2011, Willow Garage Inc., all rights reserved.
+Copyright (C) 2009-2016, NVIDIA Corporation, all rights reserved.
+Copyright (C) 2010-2013, Advanced Micro Devices, Inc., all rights reserved.
+Copyright (C) 2015-2016, OpenCV Foundation, all rights reserved.
+Copyright (C) 2015-2016, Itseez Inc., all rights reserved.
+
+License: BSD 3-Clause
+
+注意：本文件为占位。请在第二阶段替换为所用 OpenCV 版本自带的 LICENSE 原文，
+并确保构建时被 Copy Bundle Resources 收录（project.yml 已包含 Resources 目录）。
