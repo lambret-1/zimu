@@ -116,6 +116,21 @@ final class SubtitleEraserStateMachine: ObservableObject {
         state = .cancelled(reason: reason)
     }
 
+    func returnToEditing() {
+        switch state {
+        case .previewing, .completed, .failed, .cancelled:
+            state = .editing
+        default:
+            break
+        }
+    }
+
+    func returnToPreviewing() {
+        if case .failed = state {
+            state = .previewing
+        }
+    }
+
     func reset() {
         state = .idle
         lastWarning = nil
