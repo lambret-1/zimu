@@ -1,0 +1,81 @@
+name: SuperResApp
+
+options:
+  bundleIdPrefix: com.yourcompany
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  xcodeVersion: "16.0"
+  developmentLanguage: zh-Hans
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    CODE_SIGNING_ALLOWED: NO
+    CODE_SIGNING_REQUIRED: NO
+    CODE_SIGN_IDENTITY: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    CLANG_CXX_LANGUAGE_STANDARD: "c++17"
+    CLANG_CXX_LIBRARY: "libc++"
+
+targets:
+  SuperResApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: SuperResApp
+        excludes:
+          - "Resources/Info.plist"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yourcompany.superresapp
+        INFOPLIST_FILE: SuperResApp/Resources/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: SuperResApp/Bridge/SuperResApp-Bridging-Header.h
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "0.1.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  SuperResAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: SuperResAppTests
+    dependencies:
+      - target: SuperResApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yourcompany.superresapp.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+  SuperResAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: SuperResAppUITests
+    dependencies:
+      - target: SuperResApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yourcompany.superresapp.uitests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  SuperResApp:
+    build:
+      targets:
+        SuperResApp: all
+        SuperResAppTests: [test]
+        SuperResAppUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - SuperResAppTests
+        - SuperResAppUITests
+    archive:
+      config: Release
