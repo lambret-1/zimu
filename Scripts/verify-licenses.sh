@@ -2,7 +2,7 @@
 # 校验第三方许可文件存在并出现在关于页资源中。
 set -euo pipefail
 
-LICENSES_DIR="Resources/Licenses"
+LICENSES_DIR="SuperResApp/Resources/Licenses"
 REQUIRED=("OpenCV-LICENSE.txt")
 
 for f in "${REQUIRED[@]}"; do
@@ -12,7 +12,7 @@ for f in "${REQUIRED[@]}"; do
   fi
 done
 
-if ! grep -rq "OpenCV" Features/Settings 2>/dev/null; then
+if ! grep -rq "OpenCV" SuperResApp/Features/Settings 2>/dev/null; then
   echo "::warning::About page may not reference OpenCV license."
 fi
 
