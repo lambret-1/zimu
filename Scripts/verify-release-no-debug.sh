@@ -21,10 +21,10 @@ while IFS= read -r f; do
     echo "::error file=$f::Debug file missing #if DEBUG"
     exit 1
   fi
-done < <(find Debug -type f -name '*.swift')
+done < <(find . -path "./.git" -prune -o -path "./Debug" -type d -prune -o -type f -name "*.swift" -print | grep -E "/Debug/.*\.swift$" || true -name '*.swift')
 
 # 2) 源码层：DebugPanelView 入口必须在 #if DEBUG 内
-if grep -rn "DebugPanelView(" --include='*.swift' Features/ | grep -v "#if DEBUG" >/dev/null 2>&1; then
+if grep -rn "DebugPanelView(" --include='*.swift' SuperResApp/Features/ | grep -v "#if DEBUG" >/dev/null 2>&1; then
   echo "::error::DebugPanelView entry outside #if DEBUG"
   exit 1
 fi
