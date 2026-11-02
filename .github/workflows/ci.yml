@@ -135,15 +135,6 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Fix script permissions
-        run: chmod +x Scripts/*.sh
-
-      - name: Generate Xcode project
-        run: xcodegen generate
-
       - name: Setup OpenCV XCFramework
         if: hashFiles('Frameworks/opencv2.xcframework/**') != ''
         run: bash ./Scripts/setup-opencv.sh
@@ -181,15 +172,6 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '16.0'
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Fix script permissions
-        run: chmod +x Scripts/*.sh
-
-      - name: Generate Xcode project
-        run: xcodegen generate
 
       - name: Install XcodeGen
         run: brew install xcodegen
