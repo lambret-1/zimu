@@ -50,6 +50,15 @@ jobs:
         with:
           xcode-version: '16.0'
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Fix script permissions
+        run: chmod +x Scripts/*.sh
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
       - name: Show Xcode version
         run: xcodebuild -version
 
@@ -64,10 +73,11 @@ jobs:
             ${{ runner.os }}-xcode-
 
       - name: Setup OpenCV XCFramework
-        run: ./Scripts/setup-opencv.sh
+        if: hashFiles('Frameworks/opencv2.xcframework/**') != ''
+        run: bash ./Scripts/setup-opencv.sh
 
       - name: Verify licenses
-        run: ./Scripts/verify-licenses.sh
+        run: bash ./Scripts/verify-licenses.sh
 
       - name: Build (unsigned, simulator)
         run: |
@@ -117,8 +127,17 @@ jobs:
         with:
           xcode-version: '16.0'
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Fix script permissions
+        run: chmod +x Scripts/*.sh
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
       - name: Setup OpenCV XCFramework
-        run: ./Scripts/setup-opencv.sh
+        run: bash ./Scripts/setup-opencv.sh
 
       - name: UI Tests
         run: |
@@ -154,11 +173,20 @@ jobs:
         with:
           xcode-version: '16.0'
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Fix script permissions
+        run: chmod +x Scripts/*.sh
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
       - name: Setup OpenCV XCFramework
-        run: ./Scripts/setup-opencv.sh
+        run: bash ./Scripts/setup-opencv.sh
 
       - name: Verify no DEBUG leakage in Release source
-        run: ./Scripts/verify-release-no-debug.sh --source-only
+        run: bash ./Scripts/verify-release-no-debug.sh --source-only
 
       - name: Build Release (unsigned, generic iOS)
         run: |
