@@ -10,24 +10,32 @@ ARCHIVE_PATH=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --source-only) MODE="source"; shift ;;
-    --archive)     MODE="archive"; ARCHIVE_PATH="$2"; shift 2 ;;
+    --archive)
+      [ $# -ge 2 ] || { echo "Missing archive path"; exit 2; }
+      MODE="archive"; ARCHIVE_PATH="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 2 ;;
   esac
 done
 
-# 1) 源码层：Debug/ 文件必须 #if DEBUG 包裹
-while IFS= read -r f; do
-  if ! grep -q "#if DEBUG" "$f"; then
-    echo "::error file=$f::Debug file missing #if DEBUG"
+# Debug 源码（若存在）必须由 #if DEBUG 隔离。
+for debug_dir in Debug SuperResApp/Debug; do
+  [ -d "$debug_dir" ] || continue
+  while IFS= read -r -d '' f; do
+    if ! grep -q "#if DEBUG" "$f"; then
+      echo "::error file=$f::Debug file missing #if DEBUG"
+      exit 1
+    fi
+  done < <(find "$debug_dir" -type f -name '*.swift' -print0)
+done
+
+# 调试面板调用不得进入 Release 业务源码。
+for feature_dir in Features SuperResApp/Features; do
+  [ -d "$feature_dir" ] || continue
+  if grep -rn "DebugPanelView(" --include='*.swift' "$feature_dir" | grep -v "#if DEBUG" >/dev/null 2>&1; then
+    echo "::error::DebugPanelView entry outside #if DEBUG"
     exit 1
   fi
-done < <(find . -path "./.git" -prune -o -path "./Debug" -type d -prune -o -type f -name "*.swift" -print | grep -E "/Debug/.*\.swift$" || true -name '*.swift')
-
-# 2) 源码层：DebugPanelView 入口必须在 #if DEBUG 内
-if grep -rn "DebugPanelView(" --include='*.swift' SuperResApp/Features/ | grep -v "#if DEBUG" >/dev/null 2>&1; then
-  echo "::error::DebugPanelView entry outside #if DEBUG"
-  exit 1
-fi
+done
 
 echo "Source-level debug isolation OK."
 
