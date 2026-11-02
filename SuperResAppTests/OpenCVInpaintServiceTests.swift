@@ -193,6 +193,28 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         }
     }
 
+
+    func testHighCoverageMaskTouchingImageEdgeIsRejected() {
+        let width = 16
+        let height = 16
+        let image = makeGradientBGRA(width: width, height: height)
+        var mask = Data(repeating: 255, count: width * height)
+        // Leave a 2x2 unmasked island: coverage is above 95%, and the mask
+        // touches every image edge.
+        mask[7 * width + 7] = 0
+        mask[7 * width + 8] = 0
+        mask[8 * width + 7] = 0
+        mask[8 * width + 8] = 0
+
+        XCTAssertThrowsError(
+            try OpenCVInpaintService.inpaintBGRA(
+                imageData: image, maskData: mask, width: width, height: height
+            )
+        ) { error in
+            XCTAssertEqual((error as? SubtitleEraserError)?.code, .inpaintFailed)
+        }
+    }
+
     func testInvalidRadiusIsRejected() {
         let width = 16
         let height = 16
