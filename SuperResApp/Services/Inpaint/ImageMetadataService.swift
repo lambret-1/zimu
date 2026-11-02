@@ -125,7 +125,15 @@ enum ImageMetadataService {
             }
             for offset in stride(from: 0, to: buffer.count, by: 4) {
                 let alpha = Int(bytes[offset + 3])
-                guard alpha > 0, alpha < 255 else { continue }
+                if alpha == 0 {
+                    if premultiply {
+                        for channel in 0..<3 {
+                            bytes[offset + channel] = 0
+                        }
+                    }
+                    continue
+                }
+                guard alpha < 255 else { continue }
                 for channel in 0..<3 {
                     let value = Int(bytes[offset + channel])
                     let adjusted: Int
