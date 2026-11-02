@@ -208,6 +208,10 @@ final class SubtitleEraserViewModel: ObservableObject {
         }
     }
 
+    func resumeEditing() {
+        backToEditing()
+    }
+
     func resetToOriginal() {
         latestError = nil
         previewImage = nil
