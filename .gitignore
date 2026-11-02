@@ -22,8 +22,9 @@ private_keys/
 .env
 .env.*
 
-# OpenCV XCFramework 通过 Git LFS 跟踪：
-# Frameworks/opencv2.xcframework/**
+# OpenCV is fetched and assembled from pinned release archives during CI/local setup.
+Frameworks/opencv2.xcframework/
+Frameworks/.opencv-download/
 
 # macOS
 .DS_Store
