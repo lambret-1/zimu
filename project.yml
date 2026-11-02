@@ -27,6 +27,10 @@ targets:
       - path: SuperResApp
         excludes:
           - "Resources/Info.plist"
+    dependencies:
+      - framework: Frameworks/opencv2.xcframework
+        embed: false
+        link: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yourcompany.superresapp
