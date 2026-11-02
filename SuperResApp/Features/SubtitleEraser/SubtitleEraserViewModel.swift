@@ -7,7 +7,7 @@ final class SubtitleEraserViewModel: ObservableObject {
     @Published private(set) var displayImage: UIImage?
     @Published private(set) var previewImage: UIImage?
     @Published private(set) var activeAutoMask: Data?
-    @Published private(set) var autoMaskPreview: [NormalizedRect] = []
+    @Published private(set) var autoMaskPreviewImage: UIImage?
     @Published private(set) var pixelSize: CGSize = .zero
     @Published private(set) var latestError: SubtitleEraserError?
     @Published private(set) var lastWarning: SubtitleEraserError?
@@ -94,7 +94,7 @@ final class SubtitleEraserViewModel: ObservableObject {
             originalBGRA = loaded.bgra
             undoManager.reset()
             activeAutoMask = nil
-            autoMaskPreview = []
+            autoMaskPreviewImage = nil
             previewImage = nil
             showComparison = false
             comparisonSlider = 0.5
@@ -158,7 +158,14 @@ final class SubtitleEraserViewModel: ObservableObject {
                 guard refinedMask.contains(where: { $0 > 0 }) else {
                     throw SubtitleEraserError.make(.detectionFailed, underlying: "refined subtitle mask is empty.")
                 }
-                return (regions, refinedMask)
+                guard let previewPixels = MaskPreviewRenderer.makePixels(
+                    mask: refinedMask,
+                    width: width,
+                    height: height
+                ) else {
+                    throw SubtitleEraserError.make(.detectionFailed, underlying: "mask preview generation failed.")
+                }
+                return (refinedMask, previewPixels)
             }.value
 
             guard taskController.isActive(token) else {
@@ -166,8 +173,11 @@ final class SubtitleEraserViewModel: ObservableObject {
                 taskController.finish(token)
                 return
             }
-            activeAutoMask = result.1
-            autoMaskPreview = result.0.map(\.rect)
+            guard let previewImage = MaskPreviewRenderer.makeImage(from: result.1) else {
+                throw SubtitleEraserError.make(.detectionFailed, underlying: "mask preview image unavailable.")
+            }
+            activeAutoMask = result.0
+            autoMaskPreviewImage = previewImage
             try stateMachine.detectionSucceeded()
             Logger.info("subtitle auto detection succeeded")
         } catch {
@@ -177,7 +187,7 @@ final class SubtitleEraserViewModel: ObservableObject {
                     underlying: error.localizedDescription
                 )
                 activeAutoMask = nil
-                autoMaskPreview = []
+                autoMaskPreviewImage = nil
                 stateMachine.detectionDegraded(warning)
                 lastWarning = warning
                 Logger.warning("subtitle detection degraded to manual mode")
@@ -314,7 +324,7 @@ final class SubtitleEraserViewModel: ObservableObject {
     func resetMaskSelection() {
         undoManager.reset()
         activeAutoMask = nil
-        autoMaskPreview = []
+        autoMaskPreviewImage = nil
     }
 
     func resetToOriginal() {
@@ -385,4 +395,75 @@ final class SubtitleEraserViewModel: ObservableObject {
         (error as? SubtitleEraserError)
             ?? .make(fallback, underlying: error.localizedDescription)
     }
+private enum MaskPreviewRenderer {
+    struct Pixels {
+        let data: Data
+        let width: Int
+        let height: Int
+    }
+
+    static func makePixels(mask: Data, width: Int, height: Int) -> Pixels? {
+        let (pixelCount, overflow) = width.multipliedReportingOverflow(by: height)
+        guard !overflow, width > 0, height > 0, mask.count == pixelCount else { return nil }
+
+        let scale = min(1, 1280.0 / Double(max(width, height)))
+        let previewWidth = max(1, Int((Double(width) * scale).rounded()))
+        let previewHeight = max(1, Int((Double(height) * scale).rounded()))
+        let (previewPixels, previewOverflow) = previewWidth.multipliedReportingOverflow(by: previewHeight)
+        guard !previewOverflow, previewPixels <= 1280 * 1280 else { return nil }
+        let (byteCount, byteOverflow) = previewPixels.multipliedReportingOverflow(by: 4)
+        guard !byteOverflow else { return nil }
+
+        var rgba = Data(count: byteCount)
+        let rendered = rgba.withUnsafeMutableBytes { destination -> Bool in
+            guard let output = destination.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return false
+            }
+            return mask.withUnsafeBytes { source in
+                guard let input = source.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                    return false
+                }
+                for y in 0..<previewHeight {
+                    let sourceY = min(height - 1, y * height / previewHeight)
+                    for x in 0..<previewWidth {
+                        let sourceX = min(width - 1, x * width / previewWidth)
+                        let alpha = UInt8((Int(input[sourceY * width + sourceX]) * 115 + 127) / 255)
+                        let offset = (y * previewWidth + x) * 4
+                        output[offset] = alpha
+                        output[offset + 1] = 0
+                        output[offset + 2] = 0
+                        output[offset + 3] = alpha
+                    }
+                }
+                return true
+            }
+        }
+        guard rendered else { return nil }
+        return Pixels(data: rgba, width: previewWidth, height: previewHeight)
+    }
+
+    static func makeImage(from pixels: Pixels) -> UIImage? {
+        guard let provider = CGDataProvider(data: pixels.data as CFData) else { return nil }
+        let bitmapInfo = CGBitmapInfo(
+            rawValue: CGImageAlphaInfo.premultipliedLast.rawValue
+        ).union(.byteOrder32Big)
+        guard let image = CGImage(
+            width: pixels.width,
+            height: pixels.height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: pixels.width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: bitmapInfo,
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
+        ) else {
+            return nil
+        }
+        return UIImage(cgImage: image)
+    }
+}
+
 }

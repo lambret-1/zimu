@@ -138,21 +138,11 @@ struct SubtitleEraserView: View {
                 comparisonView(original: original, preview: preview)
             } else {
                 Image(uiImage: original).resizable().scaledToFit()
-                if !viewModel.autoMaskPreview.isEmpty {
-                    GeometryReader { geometry in
-                        ForEach(Array(viewModel.autoMaskPreview.enumerated()), id: \.offset) { item in
-                            let rect = item.element.toCGRect(in: geometry.size)
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(Color.red.opacity(0.24))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .stroke(Color.red.opacity(0.95), lineWidth: 1.5)
-                                }
-                                .frame(width: rect.width, height: rect.height)
-                                .position(x: rect.midX, y: rect.midY)
-                        }
-                    }
-                    .allowsHitTesting(false)
+                if let maskPreview = viewModel.autoMaskPreviewImage {
+                    Image(uiImage: maskPreview)
+                        .resizable()
+                        .scaledToFit()
+                        .allowsHitTesting(false)
                 }
                 MaskDrawCanvas(
                     committedStrokes: undoManager.strokes,
