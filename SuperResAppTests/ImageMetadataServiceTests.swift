@@ -49,8 +49,8 @@ final class ImageMetadataServiceTests: XCTestCase {
         ImageMetadataService.unpremultiply(&pixels)
         XCTAssertEqual(pixels[3], 128)
         XCTAssertEqual(pixels[7], 255)
-        XCTAssertEqual(pixels[0], 100, accuracy: 2)
-        XCTAssertEqual(pixels[1], 120, accuracy: 2)
-        XCTAssertEqual(pixels[2], 140, accuracy: 2)
+        XCTAssertLessThanOrEqual(abs(Int(pixels[0]) - 100), 2)
+        XCTAssertLessThanOrEqual(abs(Int(pixels[1]) - 120), 2)
+        XCTAssertLessThanOrEqual(abs(Int(pixels[2]) - 140), 2)
     }
 }
