@@ -61,7 +61,7 @@ enum MaskProcessor {
 
         var bytes = [UInt8](data)
         binarize(&bytes)
-        let expansion = max(0, expandPixels ?? scaledExpansion(for: targetSize))
+        let expansion = min(64, max(0, expandPixels ?? scaledExpansion(for: targetSize)))
         if expansion > 0 {
             bytes = dilate(bytes, width: width, height: height, iterations: expansion)
         }
