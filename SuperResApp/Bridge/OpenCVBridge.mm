@@ -41,6 +41,12 @@ static int ValidateMask(const uint8_t *bytes, int width, int height) {
         return -1;
     }
 
+    const double coverage = static_cast<double>(maskedPixels)
+        / static_cast<double>(totalPixels);
+    if (coverage > 0.95 && touchesImageEdge) {
+        return -2;
+    }
+
     // Count distinct unmasked pixels directly adjacent to the masked region.
     // These are the actual boundary samples available to seed Telea's front.
     size_t boundaryReferencePixels = 0;
@@ -66,11 +72,6 @@ static int ValidateMask(const uint8_t *bytes, int width, int height) {
         return -2;
     }
 
-    const double coverage = static_cast<double>(maskedPixels)
-        / static_cast<double>(totalPixels);
-    if (coverage > 0.95 && touchesImageEdge) {
-        return -2;
-    }
     return 0;
 }
 
