@@ -40,10 +40,11 @@ jobs:
         run: xcodebuild -version
 
       - name: Setup OpenCV XCFramework
-        run: ./Scripts/setup-opencv.sh
+        if: hashFiles('Frameworks/opencv2.xcframework/**') != ''
+        run: bash ./Scripts/setup-opencv.sh
 
       - name: Verify licenses
-        run: ./Scripts/verify-licenses.sh
+        run: bash ./Scripts/verify-licenses.sh
 
       - name: Resolve version & build number
         id: meta
@@ -81,11 +82,11 @@ jobs:
             | xcpretty
 
       - name: Verify no DEBUG leakage in archive
-        run: ./Scripts/verify-release-no-debug.sh --archive "$BUILD_DIR/${{ env.APP_NAME }}.xcarchive"
+        run: bash ./Scripts/verify-release-no-debug.sh --archive "$BUILD_DIR/${{ env.APP_NAME }}.xcarchive"
 
       - name: Package unsigned IPA
         run: |
-          ./Scripts/make-unsigned-ipa.sh \
+          bash ./Scripts/make-unsigned-ipa.sh \
             "$BUILD_DIR/${{ env.APP_NAME }}.xcarchive" \
             "$BUILD_DIR/${{ steps.meta.outputs.artifact_name }}.ipa"
 
