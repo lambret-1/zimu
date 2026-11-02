@@ -46,8 +46,8 @@ enum SubtitleMaskRefiner {
 
         var bridgeError: NSError?
         guard let refined = superResRefineSubtitleMask(
-            imageBGRA as NSData,
-            coarseMask as NSData,
+            imageBGRA,
+            coarseMask,
             width,
             height,
             dilateRadius: options.dilatePixels,
