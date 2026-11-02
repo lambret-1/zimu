@@ -9,7 +9,7 @@ final class ImageMetadataServiceTests: XCTestCase {
         format.opaque = alpha == 1
         return UIGraphicsImageRenderer(size: size, format: format).image { context in
             color.withAlphaComponent(alpha).setFill()
-            context.fill(CGRect(origin: .zero, size: size))
+            context.cgContext.fill(CGRect(origin: .zero, size: size))
         }
     }
 
