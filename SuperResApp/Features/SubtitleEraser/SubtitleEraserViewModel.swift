@@ -213,34 +213,15 @@ final class SubtitleEraserViewModel: ObservableObject {
 
         do {
             let output = try await Task.detached(priority: .userInitiated) {
-                let coarseMask: Data
-                if FeatureFlags.featherEnabled {
-                    coarseMask = try MaskProcessor.rasterizeMask(
-                        strokes: strokeSnapshot,
-                        targetSize: targetSize,
-                        featherPixels: 2,
-                        baseMask: baseMaskSnapshot
-                    ).binary
-                } else {
-                    coarseMask = try MaskProcessor.rasterize(
-                        strokes: strokeSnapshot,
-                        targetSize: targetSize,
-                        baseMask: baseMaskSnapshot
-                    )
-                }
-
-                let finalMask: Data
-                if useRefiner {
-                    finalMask = try SubtitleMaskRefiner.refine(
-                        imageBGRA: source,
-                        coarseMask: coarseMask,
-                        width: width,
-                        height: height,
-                        options: SubtitleMaskRefiner.Options(dilatePixels: 4, featherPixels: 2)
-                    )
-                } else {
-                    finalMask = coarseMask
-                }
+                let finalMask = try SubtitleMaskExecutionPipeline.makeFinalMask(
+                    imageBGRA: source,
+                    strokes: strokeSnapshot,
+                    baseMask: baseMaskSnapshot,
+                    targetSize: targetSize,
+                    width: width,
+                    height: height,
+                    useRefiner: useRefiner
+                )
                 let mask = RasterizedMask(
                     width: width,
                     height: height,
@@ -506,5 +487,42 @@ private enum MaskPreviewRenderer {
             return nil
         }
         return UIImage(cgImage: image)
+    }
+}
+
+private enum SubtitleMaskExecutionPipeline {
+    static func makeFinalMask(
+        imageBGRA: Data,
+        strokes: [MaskStroke],
+        baseMask: Data?,
+        targetSize: CGSize,
+        width: Int,
+        height: Int,
+        useRefiner: Bool
+    ) throws -> Data {
+        let coarseMask: Data
+        if FeatureFlags.featherEnabled {
+            coarseMask = try MaskProcessor.rasterizeMask(
+                strokes: strokes,
+                targetSize: targetSize,
+                featherPixels: 2,
+                baseMask: baseMask
+            ).binary
+        } else {
+            coarseMask = try MaskProcessor.rasterize(
+                strokes: strokes,
+                targetSize: targetSize,
+                baseMask: baseMask
+            )
+        }
+
+        guard useRefiner else { return coarseMask }
+        return try SubtitleMaskRefiner.refine(
+            imageBGRA: imageBGRA,
+            coarseMask: coarseMask,
+            width: width,
+            height: height,
+            options: SubtitleMaskRefiner.Options(dilatePixels: 4, featherPixels: 2)
+        )
     }
 }
