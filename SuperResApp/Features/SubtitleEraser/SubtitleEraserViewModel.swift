@@ -536,7 +536,7 @@ private enum SubtitleMaskExecutionPipeline {
             coarseMask: coarseMask,
             width: request.width,
             height: request.height,
-            options: SubtitleMaskRefiner.Options(dilatePixels: 3, featherPixels: 2)
+            options: SubtitleMaskRefiner.Options(dilatePixels: 3)
         )
     }
 }
