@@ -58,7 +58,9 @@ final class TemporaryFileManagerTests: XCTestCase {
         manager.cleanupAllStale {
             cleaned.fulfill()
         }
-        wait(for: [cleaned], timeout: 1)
+        // CI simulators can be heavily loaded; allow the serial utility queue
+        // enough time to enumerate and remove both directories before asserting.
+        wait(for: [cleaned], timeout: 5)
         XCTAssertFalse(manager.taskDirectoryExists(taskID: firstID))
         XCTAssertFalse(manager.taskDirectoryExists(taskID: secondID))
     }
