@@ -112,7 +112,7 @@ final class InpaintEngineTests: XCTestCase {
         let width = 192
         let height = 192
         var input = repeatingTextureImage(width: width, height: height)
-        let rect = CGRect(x: 80, y: 80, width: 16, height: 8)
+        let rect = CGRect(x: 80, y: 80, width: 24, height: 32)
         let maskData = mask(width: width, height: height, rect: rect)
 
         input.withUnsafeMutableBytes { buffer in
