@@ -199,8 +199,7 @@ NSData * _Nullable inpaintImage(NSData *imageData,
         }
     }
 
-    return [NSData dataWithBytes:outputBGRA.data
-                          length:outputBGRA.total() * outputBGRA.elemSize()];
+    return outputData;
 }
 
 
@@ -505,7 +504,10 @@ NSData * _Nullable SuperResAdvancedInpaint(NSData *imageData,
 
     // Composite only masked pixels here. Soft edge blending is performed by
     // InpaintEngine using RasterizedMask.softWeights, never inside OpenCV.
-    cv::Mat outputBGRA = sourceBGRA.clone();
+    // Reuse one mutable copy of the input buffer as output; avoid a second
+    // full-frame allocation when converting the repaired cv::Mat back to NSData.
+    NSMutableData *outputData = [imageData mutableCopy];
+    cv::Mat outputBGRA(imageHeight, imageWidth, CV_8UC4, outputData.mutableBytes);
     for (int y = 0; y < repairRect.height; ++y) {
         const uint8_t *maskRow = maskRegion.ptr<uint8_t>(y);
         const cv::Vec3b *repairedRow = selectedBGR.ptr<cv::Vec3b>(y);
