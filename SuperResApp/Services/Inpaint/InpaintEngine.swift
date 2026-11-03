@@ -13,7 +13,7 @@ enum InpaintEngine {
         radius: Int = defaultRadius
     ) throws -> Data {
         try validate(imageBGRA: imageBGRA, mask: mask, width: width, height: height, radius: radius)
-        return try OpenCVInpaintService.inpaintBGRA(
+        return try OpenCVInpaintService.inpaintAdvancedBGRA(
             imageData: imageBGRA,
             maskData: mask,
             width: width,
@@ -43,7 +43,7 @@ enum InpaintEngine {
         guard mask.softWeights.count == width * height else {
             throw SubtitleEraserError.make(.openCVBridgeError, underlying: "soft mask length mismatch")
         }
-        let repaired = try OpenCVInpaintService.inpaintBGRA(
+        let repaired = try OpenCVInpaintService.inpaintAdvancedBGRA(
             imageData: imageBGRA,
             maskData: mask.binary,
             width: width,

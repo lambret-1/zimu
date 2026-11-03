@@ -2,7 +2,7 @@ import Foundation
 
 enum SubtitleMaskRefiner {
     struct Options {
-        var dilatePixels: Int = 4
+        var dilatePixels: Int = 3
         var featherPixels: Int = 2
     }
 

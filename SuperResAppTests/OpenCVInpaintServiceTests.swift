@@ -63,6 +63,43 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         return bytes
     }
 
+
+    func testAdvancedInpaintPreservesAlphaAndOutputLength() throws {
+        let width = 48
+        let height = 48
+        let image = makeGradientBGRA(width: width, height: height)
+        let mask = makeMask(
+            width: width,
+            height: height,
+            rect: CGRect(x: 18, y: 30, width: 10, height: 6)
+        )
+
+        let output = try OpenCVInpaintService.inpaintAdvancedBGRA(
+            imageData: image,
+            maskData: mask,
+            width: width,
+            height: height
+        )
+
+        XCTAssertEqual(output.count, image.count)
+        for pixel in 0..<(width * height) {
+            XCTAssertEqual(output[pixel * 4 + 3], image[pixel * 4 + 3])
+        }
+    }
+
+    func testAdvancedInpaintEmptyMaskReturnsOriginal() throws {
+        let width = 16
+        let height = 16
+        let image = makeGradientBGRA(width: width, height: height)
+        let output = try OpenCVInpaintService.inpaintAdvancedBGRA(
+            imageData: image,
+            maskData: Data(count: width * height),
+            width: width,
+            height: height
+        )
+        XCTAssertEqual(output, image)
+    }
+
     func testOutputSizeAndLength() throws {
         let width = 64
         let height = 64

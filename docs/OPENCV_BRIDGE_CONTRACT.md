@@ -1,7 +1,7 @@
 # OpenCV Bridge Safety Contract
 
-This contract applies to every call to `inpaintImage` in
-`SuperResApp/Bridge/OpenCVBridge.mm`.
+This contract applies to `inpaintImage`, `SuperResAdvancedInpaint`, and
+`SuperResRefineSubtitleMask` in `SuperResApp/Bridge/OpenCVBridge.mm`.
 
 ## Why validation must happen before OpenCV
 
@@ -12,8 +12,9 @@ Objective-C exception handlers as a substitute for input validation.
 
 ## Required short-circuit order
 
-The bridge must preserve this order. No `cv::Mat`, `cvtColor`, or
-`cv::inpaint` call may occur before all applicable checks have passed.
+Both inpaint entry points must preserve this order. No `cv::Mat`, `cvtColor`,
+`cv::inpaint`, or donor-patch operation may occur before all applicable checks
+have passed.
 
 | Order | Contract | Failure behavior |
 |---|---|---|
@@ -33,10 +34,16 @@ Objective-C++ boundary checks.
 
 - Input is tightly packed BGRA8888; mask is tightly packed 8-bit single-channel.
 - Telea receives BGR + 8UC1 only.
+- Advanced repair searches clean same-size patches above, then below the mask ROI.
+- OpenCV 3+ builds with photo headers use `seamlessClone` on BGR data and a feathered single-channel mask.
+- The pinned opencv-mobile 2.4.x build has no `seamlessClone`; it uses feathered donor-patch blending. Telea is used only when no clean donor exists.
 - Output is BGRA8888 with the source alpha channel copied byte-for-byte.
 - No C++ OpenCV headers or C++ types may leak into the Swift bridging header.
 - Do not add `try/catch`, `catch (cv::Exception)`, or `@try/@catch` around
   OpenCV calls. Keep all deterministic validation before OpenCV entry.
+
+Mask refinement uses the supplied fixed dilation radius (the app passes 3 px)
+and feather radius (2 px); text-extraction morphology remains independent.
 
 ## Change checklist
 

@@ -5,9 +5,26 @@ enum OpenCVInpaintService {
     static let maxSide = 8192
     static let maxRadius = 20
 
-    /// Repairs a tightly packed BGRA8888 buffer with an 8-bit, single-channel mask.
-    /// The bridge repeats every safety check before entering OpenCV.
+    /// Backward-compatible entry point; repairs now use the advanced donor-patch bridge.
     static func inpaintBGRA(
+        imageData: Data,
+        maskData: Data,
+        width: Int,
+        height: Int,
+        radius: Int = 4
+    ) throws -> Data {
+        try inpaintAdvancedBGRA(
+            imageData: imageData,
+            maskData: maskData,
+            width: width,
+            height: height,
+            radius: radius
+        )
+    }
+
+    /// Repairs a tightly packed BGRA8888 buffer using a clean adjacent patch when possible.
+    /// The bridge repeats every safety check before entering OpenCV.
+    static func inpaintAdvancedBGRA(
         imageData: Data,
         maskData: Data,
         width: Int,
@@ -35,13 +52,13 @@ enum OpenCVInpaintService {
         }
 
         var bridgeError: NSError?
-        guard let result = inpaintImage(
+        guard let result = superResAdvancedInpaint(
             imageData,
             maskData,
-            Int32(width),
-            Int32(height),
-            Int32(radius),
-            &bridgeError
+            width,
+            height,
+            radius: radius,
+            error: &bridgeError
         ) else {
             let code: SubtitleEraserErrorCode
             switch bridgeError?.code {

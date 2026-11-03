@@ -393,7 +393,7 @@ private enum SubtitleAutoDetectionPipeline {
             coarseMask: coarseMask,
             width: width,
             height: height,
-            options: SubtitleMaskRefiner.Options(dilatePixels: 4, featherPixels: 2)
+            options: SubtitleMaskRefiner.Options(dilatePixels: 3, featherPixels: 2)
         )
         guard refinedMask.contains(where: { $0 > 0 }) else {
             throw SubtitleEraserError.make(.detectionFailed, underlying: "refined subtitle mask is empty.")
@@ -530,7 +530,7 @@ private enum SubtitleMaskExecutionPipeline {
             coarseMask: coarseMask,
             width: request.width,
             height: request.height,
-            options: SubtitleMaskRefiner.Options(dilatePixels: 8, featherPixels: 4)
+            options: SubtitleMaskRefiner.Options(dilatePixels: 3, featherPixels: 2)
         )
     }
 }

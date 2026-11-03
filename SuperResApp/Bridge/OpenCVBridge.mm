@@ -1,6 +1,13 @@
 #import "SuperResApp-Bridging-Header.h"
 #import <opencv2/opencv.hpp>
 
+#if CV_MAJOR_VERSION >= 3 && __has_include(<opencv2/photo.hpp>)
+#import <opencv2/photo.hpp>
+#define SUPERRES_HAS_SEAMLESS_CLONE 1
+#else
+#define SUPERRES_HAS_SEAMLESS_CLONE 0
+#endif
+
 #include <cstdint>
 #include <limits>
 
@@ -163,6 +170,172 @@ NSData * _Nullable inpaintImage(NSData *imageData,
 }
 
 
+/// Repairs a subtitle region by borrowing a clean vertically adjacent background patch.
+/// Uses Poisson seamless cloning when the linked OpenCV version exposes it; otherwise
+/// performs feathered texture transfer. Telea is reserved for cases without a clean donor.
+NSData * _Nullable SuperResAdvancedInpaint(NSData *imageData,
+                                            NSData *maskData,
+                                            NSInteger width,
+                                            NSInteger height,
+                                            NSInteger radius,
+                                            NSError **error) {
+    if (imageData == nil || maskData == nil || width < 1 || height < 1
+        || width > kMaxSide || height > kMaxSide) {
+        SetBridgeError(error, 1002, @"Image dimensions are outside the supported range.");
+        return nil;
+    }
+
+    const size_t pixelWidth = static_cast<size_t>(width);
+    const size_t pixelHeight = static_cast<size_t>(height);
+    if (pixelWidth > std::numeric_limits<size_t>::max() / pixelHeight) {
+        SetBridgeError(error, 1002, @"Image dimensions overflow the supported buffer size.");
+        return nil;
+    }
+    const size_t pixelCount = pixelWidth * pixelHeight;
+    if (pixelCount > kMaxPixels || pixelCount > std::numeric_limits<size_t>::max() / 4u) {
+        SetBridgeError(error, 1002, @"Image exceeds the supported pixel limit.");
+        return nil;
+    }
+    if (radius < 1 || radius > kMaxRadius) {
+        SetBridgeError(error, 4001, @"Inpaint radius must be between 1 and 20.");
+        return nil;
+    }
+
+    const size_t expectedImageBytes = pixelCount * 4u;
+    if (imageData.length != expectedImageBytes || maskData.length != pixelCount) {
+        SetBridgeError(error, 4002, @"Image or mask byte count does not match its dimensions.");
+        return nil;
+    }
+
+    const uint8_t *imageBytes = static_cast<const uint8_t *>(imageData.bytes);
+    const uint8_t *maskBytes = static_cast<const uint8_t *>(maskData.bytes);
+    const int imageWidth = static_cast<int>(width);
+    const int imageHeight = static_cast<int>(height);
+    const int maskState = ValidateMask(maskBytes, imageWidth, imageHeight);
+    if (maskState == -1) {
+        return [imageData copy];
+    }
+    if (maskState == -2) {
+        SetBridgeError(error, 4001, @"Mask leaves fewer than four valid reference pixels.");
+        return nil;
+    }
+
+    cv::Mat sourceBGRA(imageHeight, imageWidth, CV_8UC4, const_cast<uint8_t *>(imageBytes));
+    cv::Mat mask(imageHeight, imageWidth, CV_8UC1, const_cast<uint8_t *>(maskBytes));
+
+    // Find tight bounds without allocating a potentially huge Point vector.
+    int minX = imageWidth;
+    int minY = imageHeight;
+    int maxX = -1;
+    int maxY = -1;
+    for (int y = 0; y < imageHeight; ++y) {
+        const uint8_t *maskRow = mask.ptr<uint8_t>(y);
+        for (int x = 0; x < imageWidth; ++x) {
+            if (maskRow[x] == 0) {
+                continue;
+            }
+            minX = std::min(minX, x);
+            minY = std::min(minY, y);
+            maxX = std::max(maxX, x);
+            maxY = std::max(maxY, y);
+        }
+    }
+    if (maxX < minX || maxY < minY) {
+        return [imageData copy];
+    }
+
+    const int padding = 10;
+    const int roiX = std::max(0, minX - padding);
+    const int roiY = std::max(0, minY - padding);
+    const int roiRight = std::min(imageWidth, maxX + 1 + padding);
+    const int roiBottom = std::min(imageHeight, maxY + 1 + padding);
+    const cv::Rect targetRect(roiX, roiY, roiRight - roiX, roiBottom - roiY);
+
+    cv::Mat sourceBGR;
+    cv::cvtColor(sourceBGRA, sourceBGR, CV_BGRA2BGR);
+
+    // Prefer the region directly above the subtitle; try below if unavailable or dirty.
+    cv::Rect donorRect;
+    bool hasCleanDonor = false;
+    const int donorY[2] = {
+        targetRect.y - targetRect.height,
+        targetRect.y + targetRect.height
+    };
+    for (int candidate = 0; candidate < 2 && !hasCleanDonor; ++candidate) {
+        const int y = donorY[candidate];
+        if (y < 0 || y + targetRect.height > imageHeight) {
+            continue;
+        }
+        const cv::Rect candidateRect(targetRect.x, y, targetRect.width, targetRect.height);
+        if (cv::countNonZero(mask(candidateRect)) == 0) {
+            donorRect = candidateRect;
+            hasCleanDonor = true;
+        }
+    }
+
+    cv::Mat repairedBGR;
+    if (hasCleanDonor) {
+        const cv::Mat donorPatch = sourceBGR(donorRect).clone();
+        cv::Mat blendMask;
+        cv::compare(mask(targetRect), cv::Scalar(0), blendMask, CV_CMP_GT);
+        const cv::Mat edgeKernel = cv::getStructuringElement(
+            cv::MORPH_ELLIPSE, cv::Size(7, 7));
+        cv::dilate(blendMask, blendMask, edgeKernel);
+        cv::GaussianBlur(blendMask, blendMask, cv::Size(7, 7), 0);
+
+#if SUPERRES_HAS_SEAMLESS_CLONE
+        const cv::Point center(
+            targetRect.x + targetRect.width / 2,
+            targetRect.y + targetRect.height / 2
+        );
+        cv::seamlessClone(
+            donorPatch, sourceBGR, blendMask, center, repairedBGR, cv::NORMAL_CLONE
+        );
+#else
+        // The pinned opencv-mobile 2.4.x binary has no seamlessClone API.
+        // Preserve donor texture with a feathered alpha blend instead.
+        repairedBGR = sourceBGR.clone();
+        cv::Mat targetPatch = repairedBGR(targetRect);
+        for (int y = 0; y < targetRect.height; ++y) {
+            const uint8_t *weights = blendMask.ptr<uint8_t>(y);
+            const cv::Vec3b *donorPixels = donorPatch.ptr<cv::Vec3b>(y);
+            cv::Vec3b *targetPixels = targetPatch.ptr<cv::Vec3b>(y);
+            for (int x = 0; x < targetRect.width; ++x) {
+                const double weight = static_cast<double>(weights[x]) / 255.0;
+                if (weight <= 0.0) {
+                    continue;
+                }
+                for (int channel = 0; channel < 3; ++channel) {
+                    const double originalValue = static_cast<double>(targetPixels[x][channel]);
+                    const double donorValue = static_cast<double>(donorPixels[x][channel]);
+                    targetPixels[x][channel] = cv::saturate_cast<uint8_t>(
+                        originalValue * (1.0 - weight) + donorValue * weight
+                    );
+                }
+            }
+        }
+#endif
+    } else {
+        // No trustworthy donor patch: use a small Telea radius to avoid broad smearing.
+        const double fallbackRadius = static_cast<double>(std::min<NSInteger>(radius, 3));
+        cv::inpaint(sourceBGR, mask, repairedBGR, fallbackRadius, cv::INPAINT_TELEA);
+    }
+
+    cv::Mat outputBGRA;
+    cv::cvtColor(repairedBGR, outputBGRA, CV_BGR2BGRA);
+    for (int y = 0; y < imageHeight; ++y) {
+        const cv::Vec4b *sourcePixels = sourceBGRA.ptr<cv::Vec4b>(y);
+        cv::Vec4b *outputPixels = outputBGRA.ptr<cv::Vec4b>(y);
+        for (int x = 0; x < imageWidth; ++x) {
+            outputPixels[x][3] = sourcePixels[x][3];
+        }
+    }
+
+    return [NSData dataWithBytes:outputBGRA.data
+                          length:outputBGRA.total() * outputBGRA.elemSize()];
+}
+
+
 /// Extracts subtitle strokes from a coarse region, then pads and feathers the mask.
 /// All dimensions and parameters are validated before constructing OpenCV matrices.
 NSData * _Nullable SuperResRefineSubtitleMask(NSData *imageData,
@@ -289,6 +462,7 @@ NSData * _Nullable SuperResRefineSubtitleMask(NSData *imageData,
         }
     }
 
+    // Fixed pixel-radius dilation: the app passes 3 px to cover subtitle outlines.
     const int dilationSize = static_cast<int>(dilateRadius) * 2 + 1;
     const cv::Mat dilationKernel = cv::getStructuringElement(
         cv::MORPH_ELLIPSE, cv::Size(dilationSize, dilationSize));

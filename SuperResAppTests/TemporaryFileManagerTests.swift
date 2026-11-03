@@ -48,7 +48,7 @@ final class TemporaryFileManagerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
     }
 
-    func testCleanupAllStale() throws {
+    func testCleanupAllStale() async throws {
         let firstID = UUID()
         let secondID = UUID()
         _ = try manager.makeTaskDirectory(taskID: firstID)
@@ -58,9 +58,9 @@ final class TemporaryFileManagerTests: XCTestCase {
         manager.cleanupAllStale {
             cleaned.fulfill()
         }
-        // CI simulators can be heavily loaded; allow the serial utility queue
-        // enough time to enumerate and remove both directories before asserting.
-        wait(for: [cleaned], timeout: 5)
+        // Suspend this async test instead of blocking the XCTest runner thread.
+        // The utility queue must be able to run and invoke the completion callback.
+        await fulfillment(of: [cleaned], timeout: 15)
         XCTAssertFalse(manager.taskDirectoryExists(taskID: firstID))
         XCTAssertFalse(manager.taskDirectoryExists(taskID: secondID))
     }
