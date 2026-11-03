@@ -248,8 +248,11 @@ static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
 
     // An integral mask lets us reject donor rectangles that contain any part
     // of the subtitle itself, including another line of text.
+    cv::Mat maskBinaryForIntegral;
+    mask.convertTo(maskBinaryForIntegral, CV_8U, 1.0 / 255.0);
     cv::Mat maskIntegral;
-    cv::integral(mask, maskIntegral, CV_32S);
+    // Store 0/1 rather than 0/255 so a 16 MP mask cannot overflow CV_32S.
+    cv::integral(maskBinaryForIntegral, maskIntegral, CV_32S);
 
     cv::Mat targetGradientX;
     cv::Mat targetGradientY;
