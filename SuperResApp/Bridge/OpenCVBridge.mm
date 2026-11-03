@@ -251,12 +251,12 @@ static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
     cv::Mat maskIntegral;
     cv::integral(mask, maskIntegral, CV_32S);
 
-    cv::Mat gradientX;
-    cv::Mat gradientY;
-    cv::Mat gradientMagnitude;
-    cv::Sobel(sourceGray, gradientX, CV_32F, 1, 0, 3);
-    cv::Sobel(sourceGray, gradientY, CV_32F, 0, 1, 3);
-    cv::magnitude(gradientX, gradientY, gradientMagnitude);
+    cv::Mat targetGradientX;
+    cv::Mat targetGradientY;
+    cv::Mat targetGradient;
+    cv::Sobel(targetGray, targetGradientX, CV_32F, 1, 0, 3);
+    cv::Sobel(targetGray, targetGradientY, CV_32F, 0, 1, 3);
+    cv::magnitude(targetGradientX, targetGradientY, targetGradient);
 
     bestScore = std::numeric_limits<double>::max();
     cv::Point bestLocation(-1, -1);
@@ -304,8 +304,14 @@ static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
 
         const cv::Rect candidateRect(candidateX, candidateY, targetWidth, targetHeight);
         const cv::Mat candidateBGR = sourceBGR(candidateRect);
-        const cv::Mat candidateGradient = gradientMagnitude(candidateRect);
-        const cv::Mat targetGradient = gradientMagnitude(targetRect);
+        cv::Mat candidateGray;
+        cv::cvtColor(candidateBGR, candidateGray, CV_BGR2GRAY);
+        cv::Mat candidateGradientX;
+        cv::Mat candidateGradientY;
+        cv::Mat candidateGradient;
+        cv::Sobel(candidateGray, candidateGradientX, CV_32F, 1, 0, 3);
+        cv::Sobel(candidateGray, candidateGradientY, CV_32F, 0, 1, 3);
+        cv::magnitude(candidateGradientX, candidateGradientY, candidateGradient);
 
         double colorDifference = 0.0;
         double gradientDifference = 0.0;
