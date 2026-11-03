@@ -25,7 +25,7 @@ jobs:
       - name: Install SwiftLint
         run: brew install swiftlint
       - name: Run SwiftLint
-        run: swiftlint lint --strict --reporter github-actions-logging
+        run: swiftlint lint --strict --reporter xcode
 
   build-and-test:
     name: Build & Test (iOS ${{ matrix.ios }})
