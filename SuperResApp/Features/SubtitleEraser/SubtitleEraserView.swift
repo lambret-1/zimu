@@ -235,6 +235,7 @@ struct SubtitleEraserView: View {
         }
     }
 
+    // swiftlint:disable:next function_body_length
     private var drawingControls: some View {
         VStack(spacing: 12) {
             Button {
