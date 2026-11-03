@@ -272,12 +272,15 @@ static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
         if (!std::isfinite(coarseScore) || coarseScore >= 1.0) {
             break;
         }
-        cv::rectangle(matchScores,
-                      cv::Rect(std::max(0, coarseLocation.x - 2),
-                               std::max(0, coarseLocation.y - 2),
-                               std::min(5, matchScores.cols - std::max(0, coarseLocation.x - 2)),
-                               std::min(5, matchScores.rows - std::max(0, coarseLocation.y - 2))),
-                      cv::Scalar(1.0), cv::FILLED);
+        const int suppressX = std::max(0, coarseLocation.x - targetSmall.cols / 2);
+        const int suppressY = std::max(0, coarseLocation.y - targetSmall.rows / 2);
+        const cv::Rect suppressRect(
+            suppressX,
+            suppressY,
+            std::min(targetSmall.cols, matchScores.cols - suppressX),
+            std::min(targetSmall.rows, matchScores.rows - suppressY)
+        );
+        cv::rectangle(matchScores, suppressRect, cv::Scalar(1.0), cv::FILLED);
 
         const int candidateX = static_cast<int>(std::lround(coarseLocation.x / searchScale));
         const int candidateY = static_cast<int>(std::lround(coarseLocation.y / searchScale));
@@ -353,9 +356,8 @@ static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
     return true;
 }
 
-/// Repairs a subtitle region with two inpainting candidates.
-/// Candidate selection is based on continuity at the mask boundary; no unverified
-/// neighboring patch is copied into the subtitle region.
+/// Repairs a subtitle region with confidence-gated texture donors and classical fallbacks.
+/// Donor patches must match visible context and must not overlap any masked pixels.
 NSData * _Nullable SuperResAdvancedInpaint(NSData *imageData,
                                             NSData *maskData,
                                             NSInteger width,
@@ -437,7 +439,6 @@ NSData * _Nullable SuperResAdvancedInpaint(NSData *imageData,
     const int roiRight = std::min(imageWidth, maxX + 1 + padding);
     const int roiBottom = std::min(imageHeight, maxY + 1 + padding);
     const cv::Rect repairRect(roiX, roiY, roiRight - roiX, roiBottom - roiY);
-    const cv::Mat sourceBGRARegion = sourceBGRA(repairRect);
     const cv::Mat maskRegion = mask(repairRect);
 
     cv::Mat sourceBGR;
