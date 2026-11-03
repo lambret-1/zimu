@@ -135,7 +135,7 @@ final class SubtitleMaskRefinerTests: XCTestCase {
                 coarseMask: makeCoarseMask(),
                 width: width,
                 height: height,
-                options: .init(dilatePixels: -1, featherPixels: 0)
+                options: .init(dilatePixels: -1)
             )
         )
     }
