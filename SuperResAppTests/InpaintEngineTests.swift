@@ -16,6 +16,23 @@ final class InpaintEngineTests: XCTestCase {
         return data
     }
 
+    private func repeatingTextureImage(width: Int, height: Int) -> Data {
+        var data = Data(count: width * height * 4)
+        data.withUnsafeMutableBytes { buffer in
+            guard let bytes = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            for y in 0..<height {
+                for x in 0..<width {
+                    let offset = (y * width + x) * 4
+                    bytes[offset] = UInt8((x % 8) * 30)
+                    bytes[offset + 1] = UInt8((y % 8) * 30)
+                    bytes[offset + 2] = UInt8(((x + y) % 8) * 30)
+                    bytes[offset + 3] = 255
+                }
+            }
+        }
+        return data
+    }
+
     private func mask(width: Int, height: Int, rect: CGRect) -> Data {
         var data = Data(count: width * height)
         data.withUnsafeMutableBytes { buffer in
@@ -89,6 +106,54 @@ final class InpaintEngineTests: XCTestCase {
                 XCTAssertEqual(output[offset + 3], input[offset + 3])
             }
         }
+    }
+
+    func testBackgroundPatchMatchingReconstructsRepeatedFineTexture() throws {
+        let width = 192
+        let height = 192
+        var input = repeatingTextureImage(width: width, height: height)
+        let rect = CGRect(x: 80, y: 80, width: 16, height: 8)
+        let maskData = mask(width: width, height: height, rect: rect)
+
+        input.withUnsafeMutableBytes { buffer in
+            guard let bytes = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            for y in Int(rect.minY)..<Int(rect.maxY) {
+                for x in Int(rect.minX)..<Int(rect.maxX) {
+                    let offset = (y * width + x) * 4
+                    bytes[offset] = 255
+                    bytes[offset + 1] = 255
+                    bytes[offset + 2] = 255
+                }
+            }
+        }
+
+        let output = try InpaintEngine.inpaint(
+            imageBGRA: input,
+            mask: maskData,
+            width: width,
+            height: height
+        )
+
+        var totalError = 0
+        var samples = 0
+        output.withUnsafeBytes { buffer in
+            guard let bytes = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            for y in Int(rect.minY)..<Int(rect.maxY) {
+                for x in Int(rect.minX)..<Int(rect.maxX) {
+                    let offset = (y * width + x) * 4
+                    let expected = [
+                        UInt8((x % 8) * 30),
+                        UInt8((y % 8) * 30),
+                        UInt8(((x + y) % 8) * 30)
+                    ]
+                    for channel in 0..<3 {
+                        totalError += abs(Int(bytes[offset + channel]) - Int(expected[channel]))
+                        samples += 1
+                    }
+                }
+            }
+        }
+        XCTAssertLessThan(Double(totalError) / Double(samples), 8.0)
     }
 
     func testBlendPreservesOriginalWhereWeightIsZeroAndPreservesAlpha() {
