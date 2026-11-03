@@ -232,7 +232,11 @@ static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
     cv::Mat contextSmall;
     cv::resize(sourceGray, sourceSmall, cv::Size(), searchScale, searchScale, cv::INTER_AREA);
     cv::resize(targetGray, targetSmall, cv::Size(), searchScale, searchScale, cv::INTER_AREA);
-    cv::resize(visibleContext, contextSmall, targetSmall.size(), 0, 0, cv::INTER_NEAREST);
+    // A downsampled target pixel is trustworthy only when its entire source
+    // footprint is outside the subtitle mask. INTER_NEAREST leaks white/text
+    // pixels across mask boundaries and can rank the wrong repeated texture.
+    cv::resize(visibleContext, contextSmall, targetSmall.size(), 0, 0, cv::INTER_AREA);
+    cv::threshold(contextSmall, contextSmall, 254, 255, cv::THRESH_BINARY);
 
     if (targetSmall.cols < 8 || targetSmall.rows < 8
         || sourceSmall.cols <= targetSmall.cols || sourceSmall.rows <= targetSmall.rows
