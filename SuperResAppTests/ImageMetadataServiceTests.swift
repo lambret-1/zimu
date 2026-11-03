@@ -39,6 +39,33 @@ final class ImageMetadataServiceTests: XCTestCase {
         XCTAssertEqual(loaded.displayImage.imageOrientation, .up)
     }
 
+    func testLoadRetainsSourceColorSpace() throws {
+        let displayP3 = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
+        let context = try XCTUnwrap(CGContext(
+            data: nil,
+            width: 8,
+            height: 8,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: displayP3,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ))
+        let cgImage = try XCTUnwrap(context.makeImage())
+        let loaded = try ImageMetadataService.load(from: UIImage(cgImage: cgImage))
+        XCTAssertEqual(loaded.colorSpace.name, displayP3.name)
+    }
+
+    func testExportUsesProvidedSourceColorSpace() throws {
+        let displayP3 = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
+        let image = try ImageExportService.uiImage(
+            fromBGRA: Data(repeating: 128, count: 8 * 8 * 4),
+            width: 8,
+            height: 8,
+            colorSpace: displayP3
+        )
+        XCTAssertEqual(image.cgImage?.colorSpace?.name, displayP3.name)
+    }
+
     func testRejectsInvalidImageData() {
         XCTAssertThrowsError(try ImageMetadataService.load(from: Data([0, 1, 2, 3])))
     }
