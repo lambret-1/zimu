@@ -262,6 +262,17 @@ struct SubtitleEraserView: View {
                     .monospacedDigit()
                     .frame(width: 56, alignment: .trailing)
             }
+            if undoManager.strokes.isEmpty && viewModel.activeAutoMask == nil {
+                Text("请涂抹字幕区域，或点击“智能抓取”自动识别")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(viewModel.activeAutoMask == nil ? "手动画框已就绪" : "自动选区已生成，可继续手动补充或擦除")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             HStack(spacing: 10) {
                 Button("撤销") { undoManager.undo() }
                     .disabled(!undoManager.canUndo || viewModel.isProcessing)

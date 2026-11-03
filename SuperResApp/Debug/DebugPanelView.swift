@@ -22,6 +22,12 @@ struct DebugPanelView: View {
                     Text("笔画数：\(viewModel.strokes.count)")
                     Text("内存警告次数：\(MemoryMonitor.shared.warningCount)")
                 }
+                Section("画质调优") {
+                    Toggle("启用智能 Mask 细化（Refiner）", isOn: Binding(
+                        get: { DebugSettingsStore.shared.useMaskRefiner },
+                        set: { DebugSettingsStore.shared.useMaskRefiner = $0 }
+                    ))
+                }
                 Section("故障注入") {
                     Button("模拟内存警告") {
                         MemoryMonitor.shared.simulateWarning()

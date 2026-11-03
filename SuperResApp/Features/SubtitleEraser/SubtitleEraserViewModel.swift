@@ -177,18 +177,20 @@ final class SubtitleEraserViewModel: ObservableObject {
         latestError = nil
         lastWarning = nil
         lastSaveSucceeded = false
-        guard let source = originalBGRA,
-              !undoManager.strokes.isEmpty || activeAutoMask != nil else {
-            latestError = .make(.inpaintFailed, underlying: "missing image, automatic mask, or strokes")
+        guard let source = originalBGRA else {
+            latestError = .make(.inpaintFailed, underlying: "missing image")
             return
         }
-        let width = Int(pixelSize.width)
-        let height = Int(pixelSize.height)
+        let width = Int(pixelSize.width.rounded())
+        let height = Int(pixelSize.height.rounded())
         guard width > 0, height > 0 else {
             latestError = .make(.mediaMetadataInvalid)
             return
         }
-
+        guard !undoManager.strokes.isEmpty || activeAutoMask != nil else {
+            latestError = .make(.inpaintFailed, underlying: "no mask available")
+            return
+        }
         do {
             if case .failed = stateMachine.state {
                 stateMachine.returnToEditing()
@@ -203,29 +205,48 @@ final class SubtitleEraserViewModel: ObservableObject {
         let strokeSnapshot = undoManager.strokes
         let baseMaskSnapshot = activeAutoMask
         let targetSize = pixelSize
+        #if DEBUG
+        let useRefiner = DebugSettingsStore.shared.useMaskRefiner
+        #else
+        let useRefiner = true
+        #endif
+
         do {
             let output = try await Task.detached(priority: .userInitiated) {
-                let mask: RasterizedMask
+                let coarseMask: Data
                 if FeatureFlags.featherEnabled {
-                    mask = try MaskProcessor.rasterizeMask(
+                    coarseMask = try MaskProcessor.rasterizeMask(
                         strokes: strokeSnapshot,
                         targetSize: targetSize,
                         featherPixels: 2,
                         baseMask: baseMaskSnapshot
-                    )
+                    ).binary
                 } else {
-                    let binary = try MaskProcessor.rasterize(
+                    coarseMask = try MaskProcessor.rasterize(
                         strokes: strokeSnapshot,
                         targetSize: targetSize,
                         baseMask: baseMaskSnapshot
                     )
-                    mask = RasterizedMask(
+                }
+
+                let finalMask: Data
+                if useRefiner {
+                    finalMask = try SubtitleMaskRefiner.refine(
+                        imageBGRA: source,
+                        coarseMask: coarseMask,
                         width: width,
                         height: height,
-                        binary: binary,
-                        softWeights: [UInt8](binary)
+                        options: SubtitleMaskRefiner.Options(dilatePixels: 4, featherPixels: 2)
                     )
+                } else {
+                    finalMask = coarseMask
                 }
+                let mask = RasterizedMask(
+                    width: width,
+                    height: height,
+                    binary: finalMask,
+                    softWeights: finalMask
+                )
                 return try InpaintEngine.inpaint(
                     imageBGRA: source,
                     mask: mask,
@@ -236,6 +257,7 @@ final class SubtitleEraserViewModel: ObservableObject {
 
             guard taskController.isActive(token) else {
                 Logger.info("stale inpaint result discarded")
+                taskController.finish(token)
                 return
             }
             let image = try ImageExportService.uiImage(fromBGRA: output, width: width, height: height)
@@ -287,6 +309,8 @@ final class SubtitleEraserViewModel: ObservableObject {
         latestError = nil
         previewImage = nil
         showComparison = false
+        activeAutoMask = nil
+        autoMaskPreviewImage = nil
         do {
             try stateMachine.backToEditing()
         } catch {
