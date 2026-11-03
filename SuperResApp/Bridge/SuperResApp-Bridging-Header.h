@@ -38,9 +38,8 @@ FOUNDATION_EXPORT NSData * _Nullable SuperResRefineSubtitleMask(
     NSInteger width,
     NSInteger height,
     NSInteger dilateRadius,
-    NSInteger featherPixels,
     NSError * _Nullable * _Nullable error
-) NS_SWIFT_NAME(superResRefineSubtitleMask(_:_:_:_:dilateRadius:featherPixels:error:))
+) NS_SWIFT_NAME(superResRefineSubtitleMask(_:_:_:_:dilateRadius:error:))
   NS_SWIFT_NOTHROW;
 
 NS_ASSUME_NONNULL_END

@@ -42,8 +42,12 @@ Objective-C++ boundary checks.
 - Do not add `try/catch`, `catch (cv::Exception)`, or `@try/@catch` around
   OpenCV calls. Keep all deterministic validation before OpenCV entry.
 
-Mask refinement uses the supplied fixed dilation radius (the app passes 3 px)
-and feather radius (2 px); text-extraction morphology remains independent.
+Mask refinement returns a strictly binary 0/255 repair mask. Bright and dark
+Top-Hat candidates are combined before connected-contour cleanup so outlined
+text can retain both fill and stroke polarities. The supplied dilation radius
+pads the binary mask. Feathering is a separate Swift-only compositing weight
+built by `MaskProcessor.blendWeights`; feather values must never be sent to
+OpenCV or reused as the inpaint mask.
 
 ## Change checklist
 

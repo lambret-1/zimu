@@ -181,6 +181,33 @@ enum MaskProcessor {
         )
     }
 
+    /// Builds edge-only blend weights from a binary repair mask.
+    /// The returned weights are for final compositing and must never be sent to OpenCV.
+    static func blendWeights(
+        binaryMask: Data,
+        width: Int,
+        height: Int,
+        featherPixels: Int
+    ) throws -> [UInt8] {
+        guard width > 0, height > 0, width <= maxSide, height <= maxSide else {
+            throw SubtitleEraserError.make(.mediaMetadataInvalid, underlying: "blend mask dimensions invalid")
+        }
+        let (pixelCount, overflow) = width.multipliedReportingOverflow(by: height)
+        guard !overflow, pixelCount <= maxPixels, binaryMask.count == pixelCount else {
+            throw SubtitleEraserError.make(.openCVBridgeError, underlying: "blend mask length mismatch")
+        }
+        guard (0...64).contains(featherPixels) else {
+            throw SubtitleEraserError.make(.openCVBridgeError, underlying: "feather radius out of range")
+        }
+        let binary = [UInt8](binaryMask)
+        guard binary.allSatisfy({ $0 == 0 || $0 == 255 }) else {
+            throw SubtitleEraserError.make(.openCVBridgeError, underlying: "repair mask must be binary")
+        }
+        return featherPixels > 0
+            ? buildSoftWeights(binary: binary, width: width, height: height, radius: featherPixels)
+            : binary
+    }
+
     private static func buildSoftWeights(
         binary: [UInt8],
         width: Int,

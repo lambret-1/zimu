@@ -3,7 +3,6 @@ import Foundation
 enum SubtitleMaskRefiner {
     struct Options {
         var dilatePixels: Int = 3
-        var featherPixels: Int = 2
     }
 
     /// Refines a BGRA image's coarse subtitle mask and pads the detected strokes.
@@ -36,8 +35,7 @@ enum SubtitleMaskRefiner {
                 underlying: "Mask length mismatch."
             )
         }
-        guard (0...20).contains(options.dilatePixels),
-              (0...32).contains(options.featherPixels) else {
+        guard (0...20).contains(options.dilatePixels) else {
             throw SubtitleEraserError.make(
                 .openCVBridgeError,
                 underlying: "Refinement radius is outside the supported range."
@@ -51,7 +49,6 @@ enum SubtitleMaskRefiner {
             width,
             height,
             dilateRadius: options.dilatePixels,
-            featherPixels: options.featherPixels,
             error: &bridgeError
         ) else {
             throw SubtitleEraserError.make(

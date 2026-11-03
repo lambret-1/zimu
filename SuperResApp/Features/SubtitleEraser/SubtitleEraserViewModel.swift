@@ -393,7 +393,7 @@ private enum SubtitleAutoDetectionPipeline {
             coarseMask: coarseMask,
             width: width,
             height: height,
-            options: SubtitleMaskRefiner.Options(dilatePixels: 3, featherPixels: 2)
+            options: SubtitleMaskRefiner.Options(dilatePixels: 3)
         )
         guard refinedMask.contains(where: { $0 > 0 }) else {
             throw SubtitleEraserError.make(.detectionFailed, underlying: "refined subtitle mask is empty.")
@@ -492,12 +492,18 @@ private enum SubtitleMaskExecutionPipeline {
     }
 
     static func inpaint(request: Request) throws -> Data {
-        let finalMask = try makeFinalMask(request: request)
+        let binaryMask = try makeFinalMask(request: request)
+        let blendWeights = try MaskProcessor.blendWeights(
+            binaryMask: binaryMask,
+            width: request.width,
+            height: request.height,
+            featherPixels: FeatureFlags.featherEnabled ? 2 : 0
+        )
         let mask = RasterizedMask(
             width: request.width,
             height: request.height,
-            binary: finalMask,
-            softWeights: Array(finalMask)
+            binary: binaryMask,
+            softWeights: blendWeights
         )
         return try InpaintEngine.inpaint(
             imageBGRA: request.imageBGRA,

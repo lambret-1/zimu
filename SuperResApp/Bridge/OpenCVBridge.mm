@@ -343,7 +343,6 @@ NSData * _Nullable SuperResRefineSubtitleMask(NSData *imageData,
                                                NSInteger width,
                                                NSInteger height,
                                                NSInteger dilateRadius,
-                                               NSInteger featherPixels,
                                                NSError **error) {
     if (imageData == nil || coarseMaskData == nil || width < 1 || height < 1
         || width > kMaxSide || height > kMaxSide) {
@@ -367,8 +366,7 @@ NSData * _Nullable SuperResRefineSubtitleMask(NSData *imageData,
         SetBridgeError(error, 4002, @"Buffer size mismatch.");
         return nil;
     }
-    if (dilateRadius < 0 || dilateRadius > kMaxRadius
-        || featherPixels < 0 || featherPixels > 32) {
+    if (dilateRadius < 0 || dilateRadius > kMaxRadius) {
         SetBridgeError(error, 4002, @"Refinement radius is outside the supported range.");
         return nil;
     }
@@ -434,27 +432,28 @@ NSData * _Nullable SuperResRefineSubtitleMask(NSData *imageData,
     cv::bitwise_and(binaryLight, roiCoarse, binaryLight);
     cv::bitwise_and(binaryDark, roiCoarse, binaryDark);
 
-    const double lightArea = cv::countNonZero(binaryLight);
-    const double darkArea = cv::countNonZero(binaryDark);
+    // Keep both polarities: outlined subtitles commonly contain bright fills and
+    // dark strokes in the same coarse Vision region.
+    cv::Mat textMask;
+    cv::bitwise_or(binaryLight, binaryDark, textMask);
     const double coarseArea = cv::countNonZero(roiCoarse);
 
-    cv::Mat textMask;
-    if (lightArea >= darkArea && lightArea > 0) {
-        textMask = binaryLight;
-    } else if (darkArea > lightArea && darkArea > 0) {
-        textMask = binaryDark;
-    }
-
-    if (textMask.empty()
-        || static_cast<double>(cv::countNonZero(textMask)) < coarseArea * 0.02) {
-        return [coarseMaskData copy];
+    if (cv::countNonZero(textMask) == 0) {
+        // Vision's coarse rectangle is safer than returning an empty mask: the
+        // caller must still be able to remove text that morphology did not isolate.
+        cv::Mat fallback = cv::Mat::zeros(
+            static_cast<int>(height), static_cast<int>(width), CV_8UC1);
+        roiCoarse.copyTo(fallback(roiRect));
+        return [NSData dataWithBytes:fallback.data
+                              length:fallback.total() * fallback.elemSize()];
     }
 
     cv::morphologyEx(textMask, textMask, cv::MORPH_CLOSE, topHatKernel);
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(textMask.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
     cv::Mat cleanMask = cv::Mat::zeros(textMask.size(), CV_8UC1);
-    const double minimumArea = std::max(5.0, coarseArea * 0.01);
+    // Keep small punctuation/dots while rejecting isolated single-pixel noise.
+    const double minimumArea = std::max(1.0, coarseArea * 0.0005);
     for (size_t index = 0; index < contours.size(); ++index) {
         if (cv::contourArea(contours[index]) >= minimumArea) {
             cv::drawContours(cleanMask, contours, static_cast<int>(index),
@@ -473,14 +472,8 @@ NSData * _Nullable SuperResRefineSubtitleMask(NSData *imageData,
         static_cast<int>(height), static_cast<int>(width), CV_8UC1);
     dilatedMask.copyTo(fullMask(roiRect));
 
-    if (featherPixels > 0) {
-        const int featherSize = static_cast<int>(featherPixels) * 2 + 1;
-        cv::Mat blurred;
-        cv::GaussianBlur(fullMask, blurred, cv::Size(featherSize, featherSize), 0);
-        fullMask.copyTo(blurred, fullMask);
-        fullMask = blurred;
-    }
-
+    // This bridge returns a binary 0/255 repair mask only. Feather weights
+    // are generated separately in Swift and are never passed to OpenCV.
     return [NSData dataWithBytes:fullMask.data
                           length:fullMask.total() * fullMask.elemSize()];
 }

@@ -54,7 +54,7 @@ final class SubtitleMaskRefinerTests: XCTestCase {
             coarseMask: makeCoarseMask(),
             width: width,
             height: height,
-            options: .init(dilatePixels: 3, featherPixels: 0)
+            options: .init(dilatePixels: 3)
         )
 
         XCTAssertEqual(refined.count, width * height)
@@ -64,6 +64,47 @@ final class SubtitleMaskRefinerTests: XCTestCase {
 
         let refinedCount = refined.filter { $0 > 0 }.count
         XCTAssertLessThan(refinedCount, width * height / 6)
+    }
+
+
+    func testRefinerReturnsBinaryRepairMask() throws {
+        let refined = try SubtitleMaskRefiner.refine(
+            imageBGRA: makeSyntheticSubtitleImage(),
+            coarseMask: makeCoarseMask(),
+            width: width,
+            height: height,
+            options: .init(dilatePixels: 3)
+        )
+        XCTAssertTrue(refined.allSatisfy { $0 == 0 || $0 == 255 })
+        XCTAssertEqual(refined[70 * width + 100], 255)
+        XCTAssertEqual(refined[70 * width + 62], 255)
+    }
+
+    func testBlendWeightsAreSeparateFromBinaryRepairMask() throws {
+        let binary = try SubtitleMaskRefiner.refine(
+            imageBGRA: makeSyntheticSubtitleImage(),
+            coarseMask: makeCoarseMask(),
+            width: width,
+            height: height,
+            options: .init(dilatePixels: 3)
+        )
+        let weights = try MaskProcessor.blendWeights(
+            binaryMask: binary,
+            width: width,
+            height: height,
+            featherPixels: 2
+        )
+        XCTAssertEqual(binary[70 * width + 100], 255, "OpenCV mask interior remains binary")
+        XCTAssertEqual(weights[70 * width + 100], 255, "Blend interior remains fully opaque")
+        XCTAssertTrue(weights.contains { $0 > 0 && $0 < 255 }, "Only blend weights contain feather values")
+        XCTAssertThrowsError(
+            try MaskProcessor.blendWeights(
+                binaryMask: Data(repeating: 127, count: width * height),
+                width: width,
+                height: height,
+                featherPixels: 2
+            )
+        )
     }
 
     func testEmptyCoarseMaskReturnsEmptyMask() throws {
