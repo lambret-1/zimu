@@ -217,7 +217,7 @@ final class SubtitleEraserViewModel: ObservableObject {
                     request: .init(
                         imageBGRA: source,
                         strokes: strokeSnapshot,
-                        baseMask: request.baseMaskSnapshot,
+                        baseMask: baseMaskSnapshot,
                         targetSize: targetSize,
                         width: width,
                         height: height,
