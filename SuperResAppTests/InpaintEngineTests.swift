@@ -91,6 +91,41 @@ final class InpaintEngineTests: XCTestCase {
         }
     }
 
+    func testBlendPreservesOriginalWhereWeightIsZeroAndPreservesAlpha() {
+        let original = Data([
+            10, 20, 30, 40,
+            50, 60, 70, 80,
+            90, 100, 110, 120
+        ])
+        let repaired = Data([
+            200, 210, 220, 230,
+            150, 160, 170, 180,
+            130, 140, 150, 160
+        ])
+
+        let output = InpaintEngine.blend(
+            original: original,
+            inpainted: repaired,
+            softWeights: [0, 255, 128]
+        )
+
+        XCTAssertEqual(Array(output[0..<4]), Array(original[0..<4]))
+        XCTAssertEqual(Array(output[4..<7]), Array(repaired[4..<7]))
+        XCTAssertEqual(output[7], original[7])
+        XCTAssertEqual(output[11], original[11])
+        XCTAssertEqual(output[3], original[3])
+    }
+
+    func testBlendRejectsMismatchedBuffersByReturningOriginal() {
+        let original = Data([1, 2, 3, 4])
+        let output = InpaintEngine.blend(
+            original: original,
+            inpainted: Data([9, 9, 9]),
+            softWeights: [255]
+        )
+        XCTAssertEqual(output, original)
+    }
+
     func testBGRAOutputCanBeConvertedBackToUIImage() throws {
         let width = 16
         let height = 16

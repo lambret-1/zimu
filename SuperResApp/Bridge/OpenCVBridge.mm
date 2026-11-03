@@ -9,6 +9,7 @@
 #endif
 
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 
 static NSString * const OpenCVBridgeErrorDomain = @"OpenCVBridge";
@@ -80,6 +81,45 @@ static int ValidateMask(const uint8_t *bytes, int width, int height) {
     }
 
     return 0;
+}
+
+
+/// Scores how smoothly a candidate reconstruction joins the untouched image.
+/// Only pixels on the mask boundary are evaluated; lower is better.
+static double BoundaryContinuityScore(const cv::Mat &original,
+                                      const cv::Mat &candidate,
+                                      const cv::Mat &mask) {
+    double totalDifference = 0.0;
+    size_t samples = 0;
+    for (int y = 0; y < mask.rows; ++y) {
+        const uint8_t *maskRow = mask.ptr<uint8_t>(y);
+        const cv::Vec3b *candidateRow = candidate.ptr<cv::Vec3b>(y);
+        for (int x = 0; x < mask.cols; ++x) {
+            if (maskRow[x] == 0) {
+                continue;
+            }
+            const int dx[4] = {-1, 1, 0, 0};
+            const int dy[4] = {0, 0, -1, 1};
+            for (int direction = 0; direction < 4; ++direction) {
+                const int nx = x + dx[direction];
+                const int ny = y + dy[direction];
+                if (nx < 0 || ny < 0 || nx >= mask.cols || ny >= mask.rows
+                    || mask.ptr<uint8_t>(ny)[nx] != 0) {
+                    continue;
+                }
+                const cv::Vec3b neighbor = original.at<cv::Vec3b>(ny, nx);
+                for (int channel = 0; channel < 3; ++channel) {
+                    totalDifference += std::abs(
+                        static_cast<int>(candidateRow[x][channel])
+                        - static_cast<int>(neighbor[channel])
+                    );
+                    ++samples;
+                }
+            }
+        }
+    }
+    return samples == 0 ? std::numeric_limits<double>::max()
+                        : totalDifference / static_cast<double>(samples);
 }
 
 /// Repairs BGRA pixels under a single-channel mask using Telea inpainting.
@@ -170,9 +210,9 @@ NSData * _Nullable inpaintImage(NSData *imageData,
 }
 
 
-/// Repairs a subtitle region by borrowing a clean vertically adjacent background patch.
-/// Uses Poisson seamless cloning when the linked OpenCV version exposes it; otherwise
-/// performs feathered texture transfer. Telea is reserved for cases without a clean donor.
+/// Repairs a subtitle region with two inpainting candidates.
+/// Candidate selection is based on continuity at the mask boundary; no unverified
+/// neighboring patch is copied into the subtitle region.
 NSData * _Nullable SuperResAdvancedInpaint(NSData *imageData,
                                             NSData *maskData,
                                             NSInteger width,
@@ -222,119 +262,45 @@ NSData * _Nullable SuperResAdvancedInpaint(NSData *imageData,
 
     cv::Mat sourceBGRA(imageHeight, imageWidth, CV_8UC4, const_cast<uint8_t *>(imageBytes));
     cv::Mat mask(imageHeight, imageWidth, CV_8UC1, const_cast<uint8_t *>(maskBytes));
+    cv::Mat sourceBGR;
+    cv::cvtColor(sourceBGRA, sourceBGR, CV_BGRA2BGR);
 
-    // Find tight bounds without allocating a potentially huge Point vector.
-    int minX = imageWidth;
-    int minY = imageHeight;
-    int maxX = -1;
-    int maxY = -1;
+    // Keep the search radius proportional to the subtitle stroke scale. Large
+    // radii spread colors farther and are a common source of broad smearing.
+    const double adaptiveRadius = static_cast<double>(std::min<NSInteger>(radius, 5));
+    cv::Mat teleaCandidate;
+    cv::Mat nsCandidate;
+    cv::inpaint(sourceBGR, mask, teleaCandidate, adaptiveRadius, cv::INPAINT_TELEA);
+    cv::inpaint(sourceBGR, mask, nsCandidate, adaptiveRadius, cv::INPAINT_NS);
+
+    // Select the candidate with the smaller color discontinuity at the repair
+    // boundary. This is a conservative local criterion, not a texture-matching
+    // guarantee; structural background synthesis is handled in a later phase.
+    const double teleaScore = BoundaryContinuityScore(sourceBGR, teleaCandidate, mask);
+    const double nsScore = BoundaryContinuityScore(sourceBGR, nsCandidate, mask);
+    const cv::Mat &selectedBGR = teleaScore <= nsScore ? teleaCandidate : nsCandidate;
+
+    // Composite only masked pixels here. Soft edge blending is performed by
+    // InpaintEngine using RasterizedMask.softWeights, never inside OpenCV.
+    cv::Mat outputBGRA = sourceBGRA.clone();
     for (int y = 0; y < imageHeight; ++y) {
         const uint8_t *maskRow = mask.ptr<uint8_t>(y);
+        const cv::Vec3b *repairedRow = selectedBGR.ptr<cv::Vec3b>(y);
+        cv::Vec4b *outputRow = outputBGRA.ptr<cv::Vec4b>(y);
         for (int x = 0; x < imageWidth; ++x) {
             if (maskRow[x] == 0) {
                 continue;
             }
-            minX = std::min(minX, x);
-            minY = std::min(minY, y);
-            maxX = std::max(maxX, x);
-            maxY = std::max(maxY, y);
-        }
-    }
-    if (maxX < minX || maxY < minY) {
-        return [imageData copy];
-    }
-
-    const int padding = 10;
-    const int roiX = std::max(0, minX - padding);
-    const int roiY = std::max(0, minY - padding);
-    const int roiRight = std::min(imageWidth, maxX + 1 + padding);
-    const int roiBottom = std::min(imageHeight, maxY + 1 + padding);
-    const cv::Rect targetRect(roiX, roiY, roiRight - roiX, roiBottom - roiY);
-
-    cv::Mat sourceBGR;
-    cv::cvtColor(sourceBGRA, sourceBGR, CV_BGRA2BGR);
-
-    // Prefer the region directly above the subtitle; try below if unavailable or dirty.
-    cv::Rect donorRect;
-    bool hasCleanDonor = false;
-    const int donorY[2] = {
-        targetRect.y - targetRect.height,
-        targetRect.y + targetRect.height
-    };
-    for (int candidate = 0; candidate < 2 && !hasCleanDonor; ++candidate) {
-        const int y = donorY[candidate];
-        if (y < 0 || y + targetRect.height > imageHeight) {
-            continue;
-        }
-        const cv::Rect candidateRect(targetRect.x, y, targetRect.width, targetRect.height);
-        if (cv::countNonZero(mask(candidateRect)) == 0) {
-            donorRect = candidateRect;
-            hasCleanDonor = true;
-        }
-    }
-
-    cv::Mat repairedBGR;
-    if (hasCleanDonor) {
-        const cv::Mat donorPatch = sourceBGR(donorRect).clone();
-        cv::Mat blendMask;
-        cv::compare(mask(targetRect), cv::Scalar(0), blendMask, CV_CMP_GT);
-        const cv::Mat edgeKernel = cv::getStructuringElement(
-            cv::MORPH_ELLIPSE, cv::Size(7, 7));
-        cv::dilate(blendMask, blendMask, edgeKernel);
-        cv::GaussianBlur(blendMask, blendMask, cv::Size(7, 7), 0);
-
-#if SUPERRES_HAS_SEAMLESS_CLONE
-        const cv::Point center(
-            targetRect.x + targetRect.width / 2,
-            targetRect.y + targetRect.height / 2
-        );
-        cv::seamlessClone(
-            donorPatch, sourceBGR, blendMask, center, repairedBGR, cv::NORMAL_CLONE
-        );
-#else
-        // The pinned opencv-mobile 2.4.x binary has no seamlessClone API.
-        // Preserve donor texture with a feathered alpha blend instead.
-        repairedBGR = sourceBGR.clone();
-        cv::Mat targetPatch = repairedBGR(targetRect);
-        for (int y = 0; y < targetRect.height; ++y) {
-            const uint8_t *weights = blendMask.ptr<uint8_t>(y);
-            const cv::Vec3b *donorPixels = donorPatch.ptr<cv::Vec3b>(y);
-            cv::Vec3b *targetPixels = targetPatch.ptr<cv::Vec3b>(y);
-            for (int x = 0; x < targetRect.width; ++x) {
-                const double weight = static_cast<double>(weights[x]) / 255.0;
-                if (weight <= 0.0) {
-                    continue;
-                }
-                for (int channel = 0; channel < 3; ++channel) {
-                    const double originalValue = static_cast<double>(targetPixels[x][channel]);
-                    const double donorValue = static_cast<double>(donorPixels[x][channel]);
-                    targetPixels[x][channel] = cv::saturate_cast<uint8_t>(
-                        originalValue * (1.0 - weight) + donorValue * weight
-                    );
-                }
-            }
-        }
-#endif
-    } else {
-        // No trustworthy donor patch: use a small Telea radius to avoid broad smearing.
-        const double fallbackRadius = static_cast<double>(std::min<NSInteger>(radius, 3));
-        cv::inpaint(sourceBGR, mask, repairedBGR, fallbackRadius, cv::INPAINT_TELEA);
-    }
-
-    cv::Mat outputBGRA;
-    cv::cvtColor(repairedBGR, outputBGRA, CV_BGR2BGRA);
-    for (int y = 0; y < imageHeight; ++y) {
-        const cv::Vec4b *sourcePixels = sourceBGRA.ptr<cv::Vec4b>(y);
-        cv::Vec4b *outputPixels = outputBGRA.ptr<cv::Vec4b>(y);
-        for (int x = 0; x < imageWidth; ++x) {
-            outputPixels[x][3] = sourcePixels[x][3];
+            outputRow[x][0] = repairedRow[x][0];
+            outputRow[x][1] = repairedRow[x][1];
+            outputRow[x][2] = repairedRow[x][2];
+            // Alpha is intentionally preserved from the source.
         }
     }
 
     return [NSData dataWithBytes:outputBGRA.data
                           length:outputBGRA.total() * outputBGRA.elemSize()];
 }
-
 
 /// Extracts subtitle strokes from a coarse region, then pads and feathers the mask.
 /// All dimensions and parameters are validated before constructing OpenCV matrices.

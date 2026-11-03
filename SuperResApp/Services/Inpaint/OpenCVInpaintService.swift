@@ -22,8 +22,9 @@ enum OpenCVInpaintService {
         )
     }
 
-    /// Repairs a tightly packed BGRA8888 buffer using a clean adjacent patch when possible.
-    /// The bridge repeats every safety check before entering OpenCV.
+    /// Repairs a tightly packed BGRA8888 buffer by evaluating Telea and Navier-Stokes
+    /// candidates against mask-boundary continuity. The bridge repeats every safety
+    /// check before entering OpenCV. Final soft blending remains in InpaintEngine.
     static func inpaintAdvancedBGRA(
         imageData: Data,
         maskData: Data,

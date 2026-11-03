@@ -53,7 +53,9 @@ enum InpaintEngine {
         return blend(original: imageBGRA, inpainted: repaired, softWeights: mask.softWeights)
     }
 
-    /// 逐像素混合：mask 内取修复，mask 外取原图；Alpha 一律取原图。
+    /// Final compositing is deliberately separate from inpainting.
+    /// A zero weight preserves the source; 255 uses the reconstructed pixel.
+    /// Alpha always comes from the source image.
     static func blend(original: Data, inpainted: Data, softWeights: [UInt8]) -> Data {
         let pixelCount = softWeights.count
         guard original.count == pixelCount * 4, inpainted.count == pixelCount * 4 else {

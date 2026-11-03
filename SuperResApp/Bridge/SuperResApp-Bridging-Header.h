@@ -20,7 +20,7 @@ FOUNDATION_EXPORT NSData * _Nullable inpaintImage(
     NSError * _Nullable * _Nullable error
 ) NS_SWIFT_NOTHROW;
 
-/// Repairs subtitle pixels using a clean adjacent donor patch, with a Telea fallback.
+/// Repairs subtitle pixels using adaptive Telea/Navier-Stokes candidate selection.
 FOUNDATION_EXPORT NSData * _Nullable SuperResAdvancedInpaint(
     NSData *imageData,
     NSData *maskData,
