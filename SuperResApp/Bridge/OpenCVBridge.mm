@@ -1,13 +1,6 @@
 #import "SuperResApp-Bridging-Header.h"
 #import <opencv2/opencv.hpp>
 
-#if CV_MAJOR_VERSION >= 3 && __has_include(<opencv2/photo.hpp>)
-#import <opencv2/photo.hpp>
-#define SUPERRES_HAS_SEAMLESS_CLONE 1
-#else
-#define SUPERRES_HAS_SEAMLESS_CLONE 0
-#endif
-
 #include <cstdint>
 #include <cstdlib>
 #include <limits>
@@ -262,32 +255,63 @@ NSData * _Nullable SuperResAdvancedInpaint(NSData *imageData,
 
     cv::Mat sourceBGRA(imageHeight, imageWidth, CV_8UC4, const_cast<uint8_t *>(imageBytes));
     cv::Mat mask(imageHeight, imageWidth, CV_8UC1, const_cast<uint8_t *>(maskBytes));
-    cv::Mat sourceBGR;
-    cv::cvtColor(sourceBGRA, sourceBGR, CV_BGRA2BGR);
+
+    // Restrict both candidate algorithms to a padded mask ROI. This keeps the
+    // two-pass strategy affordable for full-resolution portrait screenshots.
+    int minX = imageWidth;
+    int minY = imageHeight;
+    int maxX = -1;
+    int maxY = -1;
+    for (int y = 0; y < imageHeight; ++y) {
+        const uint8_t *maskRow = mask.ptr<uint8_t>(y);
+        for (int x = 0; x < imageWidth; ++x) {
+            if (maskRow[x] == 0) {
+                continue;
+            }
+            minX = std::min(minX, x);
+            minY = std::min(minY, y);
+            maxX = std::max(maxX, x);
+            maxY = std::max(maxY, y);
+        }
+    }
+    if (maxX < minX || maxY < minY) {
+        return [imageData copy];
+    }
 
     // Keep the search radius proportional to the subtitle stroke scale. Large
     // radii spread colors farther and are a common source of broad smearing.
     const double adaptiveRadius = static_cast<double>(std::min<NSInteger>(radius, 5));
+    const int padding = std::max(8, static_cast<int>(adaptiveRadius * 3.0));
+    const int roiX = std::max(0, minX - padding);
+    const int roiY = std::max(0, minY - padding);
+    const int roiRight = std::min(imageWidth, maxX + 1 + padding);
+    const int roiBottom = std::min(imageHeight, maxY + 1 + padding);
+    const cv::Rect repairRect(roiX, roiY, roiRight - roiX, roiBottom - roiY);
+    const cv::Mat sourceBGRARegion = sourceBGRA(repairRect);
+    const cv::Mat maskRegion = mask(repairRect);
+
+    cv::Mat sourceBGR;
+    cv::cvtColor(sourceBGRARegion, sourceBGR, CV_BGRA2BGR);
     cv::Mat teleaCandidate;
     cv::Mat nsCandidate;
-    cv::inpaint(sourceBGR, mask, teleaCandidate, adaptiveRadius, cv::INPAINT_TELEA);
-    cv::inpaint(sourceBGR, mask, nsCandidate, adaptiveRadius, cv::INPAINT_NS);
+    cv::inpaint(sourceBGR, maskRegion, teleaCandidate, adaptiveRadius, cv::INPAINT_TELEA);
+    cv::inpaint(sourceBGR, maskRegion, nsCandidate, adaptiveRadius, cv::INPAINT_NS);
 
     // Select the candidate with the smaller color discontinuity at the repair
     // boundary. This is a conservative local criterion, not a texture-matching
     // guarantee; structural background synthesis is handled in a later phase.
-    const double teleaScore = BoundaryContinuityScore(sourceBGR, teleaCandidate, mask);
-    const double nsScore = BoundaryContinuityScore(sourceBGR, nsCandidate, mask);
+    const double teleaScore = BoundaryContinuityScore(sourceBGR, teleaCandidate, maskRegion);
+    const double nsScore = BoundaryContinuityScore(sourceBGR, nsCandidate, maskRegion);
     const cv::Mat &selectedBGR = teleaScore <= nsScore ? teleaCandidate : nsCandidate;
 
     // Composite only masked pixels here. Soft edge blending is performed by
     // InpaintEngine using RasterizedMask.softWeights, never inside OpenCV.
     cv::Mat outputBGRA = sourceBGRA.clone();
-    for (int y = 0; y < imageHeight; ++y) {
-        const uint8_t *maskRow = mask.ptr<uint8_t>(y);
+    for (int y = 0; y < repairRect.height; ++y) {
+        const uint8_t *maskRow = maskRegion.ptr<uint8_t>(y);
         const cv::Vec3b *repairedRow = selectedBGR.ptr<cv::Vec3b>(y);
-        cv::Vec4b *outputRow = outputBGRA.ptr<cv::Vec4b>(y);
-        for (int x = 0; x < imageWidth; ++x) {
+        cv::Vec4b *outputRow = outputBGRA.ptr<cv::Vec4b>(roiY + y) + roiX;
+        for (int x = 0; x < repairRect.width; ++x) {
             if (maskRow[x] == 0) {
                 continue;
             }
