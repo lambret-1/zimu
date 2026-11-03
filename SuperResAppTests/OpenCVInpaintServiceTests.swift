@@ -63,7 +63,6 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         return bytes
     }
 
-
     func testAdvancedInpaintPreservesAlphaAndOutputLength() throws {
         let width = 48
         let height = 48
