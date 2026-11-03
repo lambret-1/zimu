@@ -246,7 +246,21 @@ static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
     const int scoreRows = sourceSmall.rows - targetSmall.rows + 1;
     const int scoreColumns = sourceSmall.cols - targetSmall.cols + 1;
     cv::Mat matchScores(scoreRows, scoreColumns, CV_32F, cv::Scalar(1.0));
-    for (int candidateY = 0; candidateY < scoreRows; candidateY += 2) {
+    // Search a generous vertical band around the subtitle instead of every
+    // pixel in a large 16 MP frame. Horizontal search remains full-width.
+    const int verticalSearchRadius = std::max(targetRect.height * 4, 256);
+    const int searchTop = std::max(
+        0, static_cast<int>(std::floor((targetRect.y - verticalSearchRadius) * searchScale))
+    );
+    const int searchBottom = std::min(
+        sourceSmall.rows,
+        static_cast<int>(std::ceil(
+            (targetRect.y + targetRect.height + verticalSearchRadius) * searchScale
+        ))
+    );
+    for (int candidateY = searchTop;
+         candidateY < std::min(scoreRows, searchBottom - targetSmall.rows + 1);
+         candidateY += 2) {
         for (int candidateX = 0; candidateX < scoreColumns; candidateX += 2) {
             double difference = 0.0;
             size_t samples = 0;
