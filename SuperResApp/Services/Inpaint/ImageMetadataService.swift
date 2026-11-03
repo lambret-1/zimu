@@ -44,7 +44,7 @@ enum ImageMetadataService {
             pixelSize: CGSize(width: width, height: height),
             bgra: bgra,
             hasAlpha: hasAlpha,
-            colorSpace: cgImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
+            colorSpace: cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB()
         )
     }
 
@@ -108,7 +108,7 @@ enum ImageMetadataService {
                     height: height,
                     bitsPerComponent: 8,
                     bytesPerRow: bytesPerRow,
-                    space: cgImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
+                    space: cgImage.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
                     bitmapInfo: bitmapInfo.rawValue
                   ) else {
                 return false
