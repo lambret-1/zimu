@@ -8,6 +8,7 @@ struct LoadedImage {
     let pixelSize: CGSize
     let bgra: Data
     let hasAlpha: Bool
+    let colorSpace: CGColorSpace
 }
 
 enum ImageMetadataService {
@@ -42,7 +43,8 @@ enum ImageMetadataService {
             displayImage: UIImage(cgImage: cgImage),
             pixelSize: CGSize(width: width, height: height),
             bgra: bgra,
-            hasAlpha: hasAlpha
+            hasAlpha: hasAlpha,
+            colorSpace: cgImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
         )
     }
 
@@ -106,7 +108,7 @@ enum ImageMetadataService {
                     height: height,
                     bitsPerComponent: 8,
                     bytesPerRow: bytesPerRow,
-                    space: CGColorSpaceCreateDeviceRGB(),
+                    space: cgImage.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
                     bitmapInfo: bitmapInfo.rawValue
                   ) else {
                 return false

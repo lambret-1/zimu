@@ -27,6 +27,7 @@ final class SubtitleEraserViewModel: ObservableObject {
     private let taskController: InpaintTaskController
     private let memoryMonitor: MemoryMonitor
     private var originalBGRA: Data?
+    private var originalColorSpace: CGColorSpace?
     private var cancellables = Set<AnyCancellable>()
 
     init(
@@ -92,6 +93,7 @@ final class SubtitleEraserViewModel: ObservableObject {
             displayImage = loaded.displayImage
             pixelSize = loaded.pixelSize
             originalBGRA = loaded.bgra
+            originalColorSpace = loaded.colorSpace
             undoManager.reset()
             activeAutoMask = nil
             autoMaskPreviewImage = nil
@@ -231,7 +233,12 @@ final class SubtitleEraserViewModel: ObservableObject {
                 taskController.finish(token)
                 return
             }
-            let image = try ImageExportService.uiImage(fromBGRA: output, width: width, height: height)
+            let image = try ImageExportService.uiImage(
+                fromBGRA: output,
+                width: width,
+                height: height,
+                colorSpace: originalColorSpace
+            )
             previewImage = image
             showComparison = true
             try stateMachine.processingSucceeded()

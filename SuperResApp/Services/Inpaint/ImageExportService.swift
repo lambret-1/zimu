@@ -4,7 +4,12 @@ import Photos
 import UIKit
 
 enum ImageExportService {
-    static func uiImage(fromBGRA bgra: Data, width: Int, height: Int) throws -> UIImage {
+    static func uiImage(
+        fromBGRA bgra: Data,
+        width: Int,
+        height: Int,
+        colorSpace: CGColorSpace? = nil
+    ) throws -> UIImage {
         let (pixels, pixelOverflow) = width.multipliedReportingOverflow(by: height)
         let (expectedBytes, byteOverflow) = pixels.multipliedReportingOverflow(by: 4)
         guard width > 0, height > 0, !pixelOverflow, !byteOverflow,
@@ -41,7 +46,7 @@ enum ImageExportService {
             bitsPerComponent: 8,
             bitsPerPixel: 32,
             bytesPerRow: bytesPerRow,
-            space: CGColorSpaceCreateDeviceRGB(),
+            space: colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
             bitmapInfo: bitmapInfo,
             provider: provider,
             decode: nil,
