@@ -199,7 +199,8 @@ NSData * _Nullable inpaintImage(NSData *imageData,
         }
     }
 
-    return outputData;
+    return [NSData dataWithBytes:outputBGRA.data
+                          length:outputBGRA.total() * outputBGRA.elemSize()];
 }
 
 
@@ -523,8 +524,7 @@ NSData * _Nullable SuperResAdvancedInpaint(NSData *imageData,
         }
     }
 
-    return [NSData dataWithBytes:outputBGRA.data
-                          length:outputBGRA.total() * outputBGRA.elemSize()];
+    return outputData;
 }
 
 /// Extracts subtitle strokes from a coarse region, then pads and feathers the mask.
