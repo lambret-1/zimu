@@ -2,6 +2,7 @@
 #import <opencv2/opencv.hpp>
 
 #include <cstdint>
+#include <cmath>
 #include <cstdlib>
 #include <limits>
 
@@ -440,22 +441,22 @@ NSData * _Nullable SuperResAdvancedInpaint(NSData *imageData,
     const cv::Mat maskRegion = mask(repairRect);
 
     cv::Mat sourceBGR;
-    cv::cvtColor(sourceBGRARegion, sourceBGR, CV_BGRA2BGR);
+    cv::cvtColor(sourceBGRA, sourceBGR, CV_BGRA2BGR);
+    const cv::Mat sourceBGRRegion = sourceBGR(repairRect);
 
     cv::Mat donorPatch;
     double donorScore = std::numeric_limits<double>::max();
     const bool hasConfidentDonor = FindBestBackgroundPatch(
-        sourceBGR, maskRegion, cv::Rect(0, 0, sourceBGR.cols, sourceBGR.rows),
-        donorPatch, donorScore
+        sourceBGR, mask, repairRect, donorPatch, donorScore
     );
 
     cv::Mat teleaCandidate;
     cv::Mat nsCandidate;
-    cv::inpaint(sourceBGR, maskRegion, teleaCandidate, adaptiveRadius, cv::INPAINT_TELEA);
-    cv::inpaint(sourceBGR, maskRegion, nsCandidate, adaptiveRadius, cv::INPAINT_NS);
+    cv::inpaint(sourceBGRRegion, maskRegion, teleaCandidate, adaptiveRadius, cv::INPAINT_TELEA);
+    cv::inpaint(sourceBGRRegion, maskRegion, nsCandidate, adaptiveRadius, cv::INPAINT_NS);
 
-    const double teleaScore = BoundaryContinuityScore(sourceBGR, teleaCandidate, maskRegion);
-    const double nsScore = BoundaryContinuityScore(sourceBGR, nsCandidate, maskRegion);
+    const double teleaScore = BoundaryContinuityScore(sourceBGRRegion, teleaCandidate, maskRegion);
+    const double nsScore = BoundaryContinuityScore(sourceBGRRegion, nsCandidate, maskRegion);
     const cv::Mat &classicalCandidate = teleaScore <= nsScore ? teleaCandidate : nsCandidate;
 
     // Prefer a donor patch only when its visible context is a close color and
