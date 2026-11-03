@@ -213,7 +213,7 @@ final class SubtitleEraserViewModel: ObservableObject {
 
         do {
             let output = try await Task.detached(priority: .userInitiated) {
-                let finalMask = try SubtitleMaskExecutionPipeline.makeFinalMask(
+                try SubtitleMaskExecutionPipeline.inpaint(
                     imageBGRA: source,
                     strokes: strokeSnapshot,
                     baseMask: baseMaskSnapshot,
@@ -221,18 +221,6 @@ final class SubtitleEraserViewModel: ObservableObject {
                     width: width,
                     height: height,
                     useRefiner: useRefiner
-                )
-                let mask = RasterizedMask(
-                    width: width,
-                    height: height,
-                    binary: finalMask,
-                    softWeights: finalMask
-                )
-                return try InpaintEngine.inpaint(
-                    imageBGRA: source,
-                    mask: mask,
-                    width: width,
-                    height: height
                 )
             }.value
 
@@ -491,6 +479,38 @@ private enum MaskPreviewRenderer {
 }
 
 private enum SubtitleMaskExecutionPipeline {
+    static func inpaint(
+        imageBGRA: Data,
+        strokes: [MaskStroke],
+        baseMask: Data?,
+        targetSize: CGSize,
+        width: Int,
+        height: Int,
+        useRefiner: Bool
+    ) throws -> Data {
+        let finalMask = try makeFinalMask(
+            imageBGRA: imageBGRA,
+            strokes: strokes,
+            baseMask: baseMask,
+            targetSize: targetSize,
+            width: width,
+            height: height,
+            useRefiner: useRefiner
+        )
+        let mask = RasterizedMask(
+            width: width,
+            height: height,
+            binary: finalMask,
+            softWeights: finalMask
+        )
+        return try InpaintEngine.inpaint(
+            imageBGRA: imageBGRA,
+            mask: mask,
+            width: width,
+            height: height
+        )
+    }
+
     static func makeFinalMask(
         imageBGRA: Data,
         strokes: [MaskStroke],
