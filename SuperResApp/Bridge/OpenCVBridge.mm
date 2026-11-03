@@ -286,14 +286,8 @@ static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
         }
     }
 
-    // An integral mask lets us reject donor rectangles that contain any part
-    // of the subtitle itself, including another line of text.
-    cv::Mat maskBinaryForIntegral;
-    mask.convertTo(maskBinaryForIntegral, CV_8U, 1.0 / 255.0);
-    cv::Mat maskIntegral;
-    // Store 0/1 rather than 0/255 so a 16 MP mask cannot overflow CV_32S.
-    cv::integral(maskBinaryForIntegral, maskIntegral, CV_32S);
-
+    // Candidate rectangles are checked directly against the mask. This avoids
+    // allocating a full-frame integral image on memory-constrained devices.
     cv::Mat targetGradientX;
     cv::Mat targetGradientY;
     cv::Mat targetGradient;
@@ -333,19 +327,11 @@ static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
             continue;
         }
 
-        const int x0 = candidateX;
-        const int y0 = candidateY;
-        const int x1 = candidateX + targetWidth;
-        const int y1 = candidateY + targetHeight;
-        const int maskedPixels = maskIntegral.at<int>(y1, x1)
-            - maskIntegral.at<int>(y0, x1)
-            - maskIntegral.at<int>(y1, x0)
-            + maskIntegral.at<int>(y0, x0);
-        if (maskedPixels != 0) {
+        const cv::Rect candidateRect(candidateX, candidateY, targetWidth, targetHeight);
+        if (cv::countNonZero(mask(candidateRect)) != 0) {
             continue;
         }
 
-        const cv::Rect candidateRect(candidateX, candidateY, targetWidth, targetHeight);
         const cv::Mat candidateBGR = sourceBGR(candidateRect);
         cv::Mat candidateGray;
         cv::cvtColor(candidateBGR, candidateGray, CV_BGR2GRAY);
