@@ -203,6 +203,155 @@ NSData * _Nullable inpaintImage(NSData *imageData,
 }
 
 
+/// Finds a clean donor patch whose visible context best matches the target ROI.
+/// The coarse search is performed at quarter resolution; final ranking compares
+/// color and gradient structure at full resolution. Returns false when no safe,
+/// sufficiently similar donor exists so the caller can use classical inpainting.
+static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
+                                    const cv::Mat &mask,
+                                    const cv::Rect &targetRect,
+                                    cv::Mat &donorPatch,
+                                    double &bestScore) {
+    const cv::Mat targetBGR = sourceBGR(targetRect);
+    const cv::Mat targetMask = mask(targetRect);
+    cv::Mat visibleContext;
+    cv::bitwise_not(targetMask, visibleContext);
+    if (cv::countNonZero(visibleContext) < 64) {
+        return false;
+    }
+
+    cv::Mat sourceGray;
+    cv::Mat targetGray;
+    cv::cvtColor(sourceBGR, sourceGray, CV_BGR2GRAY);
+    cv::cvtColor(targetBGR, targetGray, CV_BGR2GRAY);
+
+    constexpr double searchScale = 0.25;
+    cv::Mat sourceSmall;
+    cv::Mat targetSmall;
+    cv::Mat contextSmall;
+    cv::resize(sourceGray, sourceSmall, cv::Size(), searchScale, searchScale, cv::INTER_AREA);
+    cv::resize(targetGray, targetSmall, cv::Size(), searchScale, searchScale, cv::INTER_AREA);
+    cv::resize(visibleContext, contextSmall, targetSmall.size(), 0, 0, cv::INTER_NEAREST);
+
+    if (targetSmall.cols < 8 || targetSmall.rows < 8
+        || sourceSmall.cols <= targetSmall.cols || sourceSmall.rows <= targetSmall.rows
+        || cv::countNonZero(contextSmall) < 16) {
+        return false;
+    }
+
+    // TM_SQDIFF_NORMED supports an explicit mask. Subtitle pixels are excluded
+    // from the comparison rather than treated as valid texture.
+    cv::Mat matchScores;
+    cv::matchTemplate(sourceSmall, targetSmall, matchScores,
+                      cv::TM_SQDIFF_NORMED, contextSmall);
+
+    // An integral mask lets us reject donor rectangles that contain any part
+    // of the subtitle itself, including another line of text.
+    cv::Mat maskIntegral;
+    cv::integral(mask, maskIntegral, CV_32S);
+
+    cv::Mat gradientX;
+    cv::Mat gradientY;
+    cv::Mat gradientMagnitude;
+    cv::Sobel(sourceGray, gradientX, CV_32F, 1, 0, 3);
+    cv::Sobel(sourceGray, gradientY, CV_32F, 0, 1, 3);
+    cv::magnitude(gradientX, gradientY, gradientMagnitude);
+
+    bestScore = std::numeric_limits<double>::max();
+    cv::Point bestLocation(-1, -1);
+    const int targetWidth = targetRect.width;
+    const int targetHeight = targetRect.height;
+    const int candidateCount = 24;
+    const double maximumScore = 0.24;
+
+    for (int candidateIndex = 0; candidateIndex < candidateCount; ++candidateIndex) {
+        double coarseScore = 0.0;
+        cv::Point coarseLocation;
+        cv::minMaxLoc(matchScores, &coarseScore, nullptr, &coarseLocation, nullptr);
+        if (!std::isfinite(coarseScore) || coarseScore >= 1.0) {
+            break;
+        }
+        cv::rectangle(matchScores,
+                      cv::Rect(std::max(0, coarseLocation.x - 2),
+                               std::max(0, coarseLocation.y - 2),
+                               std::min(5, matchScores.cols - std::max(0, coarseLocation.x - 2)),
+                               std::min(5, matchScores.rows - std::max(0, coarseLocation.y - 2))),
+                      cv::Scalar(1.0), cv::FILLED);
+
+        const int candidateX = static_cast<int>(std::lround(coarseLocation.x / searchScale));
+        const int candidateY = static_cast<int>(std::lround(coarseLocation.y / searchScale));
+        if (candidateX < 0 || candidateY < 0
+            || candidateX + targetWidth > sourceBGR.cols
+            || candidateY + targetHeight > sourceBGR.rows) {
+            continue;
+        }
+
+        const int x0 = candidateX;
+        const int y0 = candidateY;
+        const int x1 = candidateX + targetWidth;
+        const int y1 = candidateY + targetHeight;
+        const int maskedPixels = maskIntegral.at<int>(y1, x1)
+            - maskIntegral.at<int>(y0, x1)
+            - maskIntegral.at<int>(y1, x0)
+            + maskIntegral.at<int>(y0, x0);
+        if (maskedPixels != 0) {
+            continue;
+        }
+
+        const cv::Rect candidateRect(candidateX, candidateY, targetWidth, targetHeight);
+        const cv::Mat candidateBGR = sourceBGR(candidateRect);
+        const cv::Mat candidateGradient = gradientMagnitude(candidateRect);
+        const cv::Mat targetGradient = gradientMagnitude(targetRect);
+
+        double colorDifference = 0.0;
+        double gradientDifference = 0.0;
+        size_t samples = 0;
+        for (int y = 0; y < targetHeight; ++y) {
+            const uint8_t *visibleRow = visibleContext.ptr<uint8_t>(y);
+            const cv::Vec3b *targetRow = targetBGR.ptr<cv::Vec3b>(y);
+            const cv::Vec3b *candidateRow = candidateBGR.ptr<cv::Vec3b>(y);
+            const float *targetGradientRow = targetGradient.ptr<float>(y);
+            const float *candidateGradientRow = candidateGradient.ptr<float>(y);
+            for (int x = 0; x < targetWidth; ++x) {
+                if (visibleRow[x] == 0) {
+                    continue;
+                }
+                for (int channel = 0; channel < 3; ++channel) {
+                    colorDifference += std::abs(
+                        static_cast<int>(targetRow[x][channel])
+                        - static_cast<int>(candidateRow[x][channel])
+                    ) / 765.0;
+                }
+                gradientDifference += std::min(
+                    1.0,
+                    std::abs(targetGradientRow[x] - candidateGradientRow[x]) / 1442.0
+                );
+                ++samples;
+            }
+        }
+        if (samples == 0) {
+            continue;
+        }
+
+        const double score = 0.70 * (colorDifference / static_cast<double>(samples))
+            + 0.30 * (gradientDifference / static_cast<double>(samples));
+        if (score < bestScore) {
+            bestScore = score;
+            bestLocation = cv::Point(candidateX, candidateY);
+        }
+        if (bestScore <= maximumScore) {
+            break;
+        }
+    }
+
+    if (bestLocation.x < 0 || bestScore > maximumScore) {
+        return false;
+    }
+    donorPatch = sourceBGR(cv::Rect(bestLocation.x, bestLocation.y,
+                                    targetWidth, targetHeight)).clone();
+    return true;
+}
+
 /// Repairs a subtitle region with two inpainting candidates.
 /// Candidate selection is based on continuity at the mask boundary; no unverified
 /// neighboring patch is copied into the subtitle region.
@@ -292,17 +441,26 @@ NSData * _Nullable SuperResAdvancedInpaint(NSData *imageData,
 
     cv::Mat sourceBGR;
     cv::cvtColor(sourceBGRARegion, sourceBGR, CV_BGRA2BGR);
+
+    cv::Mat donorPatch;
+    double donorScore = std::numeric_limits<double>::max();
+    const bool hasConfidentDonor = FindBestBackgroundPatch(
+        sourceBGR, maskRegion, cv::Rect(0, 0, sourceBGR.cols, sourceBGR.rows),
+        donorPatch, donorScore
+    );
+
     cv::Mat teleaCandidate;
     cv::Mat nsCandidate;
     cv::inpaint(sourceBGR, maskRegion, teleaCandidate, adaptiveRadius, cv::INPAINT_TELEA);
     cv::inpaint(sourceBGR, maskRegion, nsCandidate, adaptiveRadius, cv::INPAINT_NS);
 
-    // Select the candidate with the smaller color discontinuity at the repair
-    // boundary. This is a conservative local criterion, not a texture-matching
-    // guarantee; structural background synthesis is handled in a later phase.
     const double teleaScore = BoundaryContinuityScore(sourceBGR, teleaCandidate, maskRegion);
     const double nsScore = BoundaryContinuityScore(sourceBGR, nsCandidate, maskRegion);
-    const cv::Mat &selectedBGR = teleaScore <= nsScore ? teleaCandidate : nsCandidate;
+    const cv::Mat &classicalCandidate = teleaScore <= nsScore ? teleaCandidate : nsCandidate;
+
+    // Prefer a donor patch only when its visible context is a close color and
+    // gradient match. Otherwise retain the safer classical reconstruction.
+    const cv::Mat &selectedBGR = hasConfidentDonor ? donorPatch : classicalCandidate;
 
     // Composite only masked pixels here. Soft edge blending is performed by
     // InpaintEngine using RasterizedMask.softWeights, never inside OpenCV.
