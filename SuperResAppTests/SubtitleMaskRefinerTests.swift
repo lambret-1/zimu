@@ -66,7 +66,6 @@ final class SubtitleMaskRefinerTests: XCTestCase {
         XCTAssertLessThan(refinedCount, width * height / 6)
     }
 
-
     func testRefinerReturnsBinaryRepairMask() throws {
         let refined = try SubtitleMaskRefiner.refine(
             imageBGRA: makeSyntheticSubtitleImage(),
