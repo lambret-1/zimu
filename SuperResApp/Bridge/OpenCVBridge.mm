@@ -460,6 +460,11 @@ NSData * _Nullable SuperResRefineSubtitleMask(NSData *imageData,
                              cv::Scalar(255), -1);
         }
     }
+    if (cv::countNonZero(cleanMask) == 0) {
+        // Preserve the coarse Vision region if component filtering rejected
+        // every candidate; never turn a detected subtitle into an empty mask.
+        cleanMask = roiCoarse.clone();
+    }
 
     // Fixed pixel-radius dilation: the app passes 3 px to cover subtitle outlines.
     const int dilationSize = static_cast<int>(dilateRadius) * 2 + 1;
