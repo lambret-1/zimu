@@ -46,7 +46,7 @@ enum ImageExportService {
             bitsPerComponent: 8,
             bitsPerPixel: 32,
             bytesPerRow: bytesPerRow,
-            space: colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
+            space: colorSpace ?? CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: bitmapInfo,
             provider: provider,
             decode: nil,
