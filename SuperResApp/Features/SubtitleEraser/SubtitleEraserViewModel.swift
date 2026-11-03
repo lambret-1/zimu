@@ -173,7 +173,6 @@ final class SubtitleEraserViewModel: ObservableObject {
         taskController.finish(token)
     }
 
-    // swiftlint:disable:next function_body_length cyclomatic_complexity
     func executeInpaint() async {
         latestError = nil
         lastWarning = nil
