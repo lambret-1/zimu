@@ -497,7 +497,7 @@ private enum SubtitleMaskExecutionPipeline {
             width: request.width,
             height: request.height,
             binary: finalMask,
-            softWeights: finalMask
+            softWeights: Array(finalMask)
         )
         return try InpaintEngine.inpaint(
             imageBGRA: request.imageBGRA,
@@ -514,7 +514,7 @@ private enum SubtitleMaskExecutionPipeline {
                 strokes: request.strokes,
                 targetSize: request.targetSize,
                 featherPixels: 2,
-                baseMask: baseMask
+                baseMask: request.baseMask
             ).binary
         } else {
             coarseMask = try MaskProcessor.rasterize(
