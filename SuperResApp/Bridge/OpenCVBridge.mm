@@ -142,7 +142,7 @@ NSData * _Nullable inpaintImage(NSData *imageData,
     cv::Mat sourceBGR;
     cv::Mat repairedBGR;
     cv::cvtColor(sourceBGRA, sourceBGR, CV_BGRA2BGR);
-    cv::inpaint(sourceBGR, mask, repairedBGR, static_cast<double>(radius), cv::INPAINT_TELEA);
+    cv::inpaint(sourceBGR, mask, repairedBGR, static_cast<double>(radius), cv::INPAINT_NS);
 
     // 6. Restore original alpha byte-for-byte.
     cv::Mat outputBGRA(height, width, CV_8UC4);
