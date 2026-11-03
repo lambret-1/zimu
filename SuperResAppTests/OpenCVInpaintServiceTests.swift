@@ -63,14 +63,14 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         return bytes
     }
 
-    func testAdvancedInpaintPreservesAlphaAndOutputLength() throws {
+    func testAdvancedInpaintUsesCleanDonorPatchAndPreservesAlpha() throws {
         let width = 48
-        let height = 48
+        let height = 96
         let image = makeGradientBGRA(width: width, height: height)
         let mask = makeMask(
             width: width,
             height: height,
-            rect: CGRect(x: 18, y: 30, width: 10, height: 6)
+            rect: CGRect(x: 18, y: 60, width: 10, height: 6)
         )
 
         let output = try OpenCVInpaintService.inpaintAdvancedBGRA(
@@ -81,6 +81,12 @@ final class OpenCVInpaintServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(output.count, image.count)
+        let repairedCenterOffset = (62 * width + 22) * 4
+        XCTAssertNotEqual(
+            output[repairedCenterOffset + 1],
+            image[repairedCenterOffset + 1],
+            "A clean patch above the mask should replace the masked background texture."
+        )
         for pixel in 0..<(width * height) {
             XCTAssertEqual(output[pixel * 4 + 3], image[pixel * 4 + 3])
         }
