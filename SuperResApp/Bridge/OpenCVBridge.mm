@@ -240,11 +240,37 @@ static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
         return false;
     }
 
-    // TM_SQDIFF_NORMED supports an explicit mask. Subtitle pixels are excluded
-    // from the comparison rather than treated as valid texture.
-    cv::Mat matchScores;
-    cv::matchTemplate(sourceSmall, targetSmall, matchScores,
-                      cv::TM_SQDIFF_NORMED, contextSmall);
+    // Build a coarse masked score map manually. The bundled opencv-mobile
+    // omits matchTemplate's mask overload, so only visible context pixels are
+    // sampled here. A two-pixel stride keeps the search bounded on-device.
+    const int scoreRows = sourceSmall.rows - targetSmall.rows + 1;
+    const int scoreColumns = sourceSmall.cols - targetSmall.cols + 1;
+    cv::Mat matchScores(scoreRows, scoreColumns, CV_32F, cv::Scalar(1.0));
+    for (int candidateY = 0; candidateY < scoreRows; candidateY += 2) {
+        for (int candidateX = 0; candidateX < scoreColumns; candidateX += 2) {
+            double difference = 0.0;
+            size_t samples = 0;
+            for (int y = 0; y < targetSmall.rows; y += 2) {
+                const uint8_t *contextRow = contextSmall.ptr<uint8_t>(y);
+                const uint8_t *targetRow = targetSmall.ptr<uint8_t>(y);
+                const uint8_t *candidateRow = sourceSmall.ptr<uint8_t>(candidateY + y)
+                    + candidateX;
+                for (int x = 0; x < targetSmall.cols; x += 2) {
+                    if (contextRow[x] == 0) {
+                        continue;
+                    }
+                    difference += std::abs(
+                        static_cast<int>(targetRow[x]) - static_cast<int>(candidateRow[x])
+                    ) / 255.0;
+                    ++samples;
+                }
+            }
+            if (samples >= 16) {
+                matchScores.at<float>(candidateY, candidateX) =
+                    static_cast<float>(difference / static_cast<double>(samples));
+            }
+        }
+    }
 
     // An integral mask lets us reject donor rectangles that contain any part
     // of the subtitle itself, including another line of text.
@@ -283,7 +309,7 @@ static bool FindBestBackgroundPatch(const cv::Mat &sourceBGR,
             std::min(targetSmall.cols, matchScores.cols - suppressX),
             std::min(targetSmall.rows, matchScores.rows - suppressY)
         );
-        cv::rectangle(matchScores, suppressRect, cv::Scalar(1.0), cv::FILLED);
+        matchScores(suppressRect).setTo(cv::Scalar(1.0));
 
         const int candidateX = static_cast<int>(std::lround(coarseLocation.x / searchScale));
         const int candidateY = static_cast<int>(std::lround(coarseLocation.y / searchScale));
